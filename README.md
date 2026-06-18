@@ -11,6 +11,8 @@ Initialize the repo to work with `agent-fox`:
 af init
 ```
 
+## Spec creation and refinement
+
 Create the first specification package from the `prd.md`:
 
 ```shell
@@ -97,3 +99,43 @@ The folder should now contain the following files:
 
 The specification is now ready for implementation. Add all new and updated files to `git` and commit them.
 
+## Coding
+
+Create an implementation plan:
+
+```shell
+af plan --spec 01_basic_svc
+```
+
+`agent-fox` analyses the spec and its dependencies and creates a task graph for the orchestrator:
+
+```shell
+Execution Plan
+========================================
+Specs:         01_basic_svc
+Total tasks:   11
+Review nodes:  3
+Dependencies:  13
+Fast mode:     off
+Execution order:
+    1. 01_basic_svc:0:reviewer:drift-review — Reviewer (drift-review)                                                                                              
+    2. 01_basic_svc:0:reviewer:pre-review — Reviewer (pre-review)
+    3. 01_basic_svc:1 — Write Integration and Property Tests
+    4. 01_basic_svc:2 — Initialise Go Module and Project Layout                                                                                                    
+    5. 01_basic_svc:3 — Implement Configuration Loading
+    6. 01_basic_svc:4 — Implement Structured JSON Logging                                                                                                          
+    7. 01_basic_svc:5 — Implement Database Initialisation and Schema                                                                                               
+    8. 01_basic_svc:6 — Implement Bearer Token Authentication Middleware
+    9. 01_basic_svc:7 — Implement POST /v1/events Handler                                                                                                          
+    10. 01_basic_svc:8 — Implement Health Check Endpoints
+    11. 01_basic_svc:9 — Implement Graceful Shutdown                                                                                                               
+    12. 01_basic_svc:10 — Integration Test Suite Pass Checkpoint
+    13. 01_basic_svc:11 — Wiring Verification and End-to-End Smoke Tests                                                                                           
+    14. 01_basic_svc:0:verifier — Verifier Check
+  ```
+
+Make sure everything is committed by now, and merged into branch `develop`. Now start coding:
+
+```shell
+af code
+```
