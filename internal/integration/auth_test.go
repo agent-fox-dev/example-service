@@ -28,7 +28,7 @@ func TestTS01_E5_MissingAuthorizationHeader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("expected status 401, got %d", resp.StatusCode)
@@ -45,7 +45,7 @@ func TestTS01_E5_MissingAuthorizationHeader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to read response body: %v", err)
 	}
-	var errResp map[string]interface{}
+	var errResp map[string]any
 	if err := json.Unmarshal(respBody, &errResp); err != nil {
 		t.Fatalf("response body is not valid JSON: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestTS01_E6_MalformedAuthorizationHeader(t *testing.T) {
 			if err != nil {
 				t.Fatalf("request failed: %v", err)
 			}
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 
 			if resp.StatusCode != http.StatusUnauthorized {
 				t.Errorf("expected status 401 for Authorization %q, got %d", tc.value, resp.StatusCode)
@@ -104,7 +104,7 @@ func TestTS01_E6_MalformedAuthorizationHeader(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to read response body: %v", err)
 			}
-			var errResp map[string]interface{}
+			var errResp map[string]any
 			if err := json.Unmarshal(respBody, &errResp); err != nil {
 				t.Fatalf("response body is not valid JSON: %v", err)
 			}
@@ -141,7 +141,7 @@ func TestTS01_E7_WrongTokenValue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("expected status 401, got %d", resp.StatusCode)
@@ -158,7 +158,7 @@ func TestTS01_E7_WrongTokenValue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to read response body: %v", err)
 	}
-	var errResp map[string]interface{}
+	var errResp map[string]any
 	if err := json.Unmarshal(respBody, &errResp); err != nil {
 		t.Fatalf("response body is not valid JSON: %v", err)
 	}

@@ -49,7 +49,7 @@ func setupTestApp(t *testing.T, token string) *testApp {
 		received_at DATETIME NOT NULL
 	)`)
 	if err != nil {
-		database.Close()
+		_ = database.Close()
 		t.Fatalf("failed to create events table: %v", err)
 	}
 
@@ -80,7 +80,7 @@ func setupTestApp(t *testing.T, token string) *testApp {
 func (app *testApp) teardown() {
 	app.Server.Close()
 	if app.DB != nil {
-		app.DB.Close()
+		_ = app.DB.Close()
 	}
 }
 
@@ -102,8 +102,8 @@ func setupTestAppWithBrokenDB(t *testing.T, token string) *testApp {
 	app := setupTestApp(t, token)
 
 	// Close the database and remove the file to simulate unavailability.
-	app.DB.Close()
-	os.Remove(app.DBPath)
+	_ = app.DB.Close()
+	_ = os.Remove(app.DBPath)
 
 	return app
 }

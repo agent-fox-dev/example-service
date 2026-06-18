@@ -42,7 +42,7 @@ func TestTS01_11_LogOutputIsJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Use the logger to emit a test log entry. When the logger is properly
 	// implemented, this should produce a JSON line in logBuf.
@@ -57,7 +57,7 @@ func TestTS01_11_LogOutputIsJSON(t *testing.T) {
 		if line == "" {
 			continue
 		}
-		var jsonObj map[string]interface{}
+		var jsonObj map[string]any
 		if err := json.Unmarshal([]byte(line), &jsonObj); err != nil {
 			t.Errorf("log line is not valid JSON: %q, error: %v", line, err)
 		}
@@ -92,7 +92,7 @@ func TestTS01_12_LogLevelFiltering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// Emit log entries at various levels. Only warn and error should appear.
 	slogger.Debug("debug message")
@@ -109,7 +109,7 @@ func TestTS01_12_LogLevelFiltering(t *testing.T) {
 		if line == "" {
 			continue
 		}
-		var entry map[string]interface{}
+		var entry map[string]any
 		if err := json.Unmarshal([]byte(line), &entry); err != nil {
 			t.Errorf("log line is not valid JSON: %q", line)
 			continue

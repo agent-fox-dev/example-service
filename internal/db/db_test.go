@@ -21,7 +21,7 @@ func TestOpen_CreatesDirectoryAndSchema(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	// Verify the directory was created.
 	if _, err := os.Stat(filepath.Dir(dbPath)); os.IsNotExist(err) {
@@ -48,13 +48,13 @@ func TestOpen_IdempotentSchema(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first Open failed: %v", err)
 	}
-	db1.Close()
+	_ = db1.Close()
 
 	db2, err := Open(dbPath)
 	if err != nil {
 		t.Fatalf("second Open failed: %v", err)
 	}
-	defer db2.Close()
+	defer func() { _ = db2.Close() }()
 
 	var count int
 	err = db2.QueryRow("SELECT COUNT(*) FROM events").Scan(&count)
@@ -71,7 +71,7 @@ func TestInsertEvent_StoresPayloadWithUUIDAndTimestamp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	payload := `{"key":"value","nested":{"a":1}}`
 	before := time.Now().UTC().Add(-2 * time.Second)
@@ -117,7 +117,7 @@ func TestInsertEvent_ReturnsErrorOnMissingTable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	// Drop the events table.
 	_, err = database.Exec("DROP TABLE events")
@@ -139,7 +139,7 @@ func TestPing_SucceedsWithOpenDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	if err := Ping(context.Background(), database); err != nil {
 		t.Errorf("Ping failed with open database: %v", err)
@@ -154,7 +154,7 @@ func TestPing_FailsWithClosedDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
-	database.Close()
+	_ = database.Close()
 
 	err = Ping(context.Background(), database)
 	if err == nil {

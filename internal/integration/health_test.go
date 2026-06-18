@@ -19,7 +19,7 @@ func TestTS01_6_HealthzReturns200(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected status 200, got %d", resp.StatusCode)
@@ -37,7 +37,7 @@ func TestTS01_7_ReadyzReturns200WhenDBAvailable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected status 200, got %d", resp.StatusCode)
@@ -56,7 +56,7 @@ func TestTS01_E8_ReadyzReturns503WhenDBUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusServiceUnavailable {
 		t.Errorf("expected status 503, got %d", resp.StatusCode)
@@ -73,7 +73,7 @@ func TestTS01_E8_ReadyzReturns503WhenDBUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to read response body: %v", err)
 	}
-	var errResp map[string]interface{}
+	var errResp map[string]any
 	if err := json.Unmarshal(respBody, &errResp); err != nil {
 		t.Fatalf("response body is not valid JSON: %v", err)
 	}

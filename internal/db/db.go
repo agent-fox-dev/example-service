@@ -32,7 +32,7 @@ func Open(dbPath string) (*sql.DB, error) {
 		received_at DATETIME NOT NULL
 	)`)
 	if err != nil {
-		database.Close()
+		_ = database.Close()
 		return nil, fmt.Errorf("creating events table: %w", err)
 	}
 

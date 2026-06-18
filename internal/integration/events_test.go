@@ -30,7 +30,7 @@ func TestTS01_1_SuccessfulEventIngestion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Assert HTTP 201 Created.
 	if resp.StatusCode != http.StatusCreated {
@@ -85,7 +85,7 @@ func TestTS01_2_RawJSONStoredVerbatim(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusCreated {
 		t.Errorf("expected status 201, got %d", resp.StatusCode)
@@ -123,7 +123,7 @@ func TestTS01_3_UUIDAndReceivedAtGenerated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	after := time.Now().UTC().Add(2 * time.Second)
 
@@ -181,7 +181,7 @@ func TestTS01_4_BearerTokenExtractionFormat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusCreated {
 		t.Errorf("expected status 201 (token extracted and matched correctly), got %d", resp.StatusCode)
@@ -209,7 +209,7 @@ func TestTS01_5_ValidTokenProceedsToStorage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusCreated {
 		t.Errorf("expected status 201, got %d", resp.StatusCode)

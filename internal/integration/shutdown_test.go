@@ -20,7 +20,7 @@ func waitForServer(t *testing.T, addr string, timeout time.Duration) error {
 	for time.Now().Before(deadline) {
 		conn, err := net.DialTimeout("tcp", addr, 200*time.Millisecond)
 		if err == nil {
-			conn.Close()
+			_ = conn.Close()
 			return nil
 		}
 		time.Sleep(50 * time.Millisecond)
@@ -73,7 +73,7 @@ func TestTS01_13_GracefulShutdownCompletesInFlight(t *testing.T) {
 	if err != nil {
 		t.Fatalf("healthz request failed before SIGTERM: %v", err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 from healthz, got %d", resp.StatusCode)
 	}
@@ -155,7 +155,7 @@ func TestTS01_14_ForceExitAfterTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to dial server: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Send HTTP headers indicating a large body that we will never fully send.
 	reqHeaders := "POST /v1/events HTTP/1.1\r\n" +

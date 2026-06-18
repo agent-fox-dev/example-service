@@ -49,7 +49,7 @@ func main() {
 		log.Error("failed to open database", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	// Build the Echo application.
 	e := echo.New()

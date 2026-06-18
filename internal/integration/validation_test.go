@@ -30,7 +30,7 @@ func TestTS01_E1_MissingContentTypeHeader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected status 400, got %d", resp.StatusCode)
@@ -47,7 +47,7 @@ func TestTS01_E1_MissingContentTypeHeader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to read response body: %v", err)
 	}
-	var errResp map[string]interface{}
+	var errResp map[string]any
 	if err := json.Unmarshal(respBody, &errResp); err != nil {
 		t.Fatalf("response body is not valid JSON: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestTS01_E2_NonJSONContentType(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected status 400, got %d", resp.StatusCode)
@@ -99,7 +99,7 @@ func TestTS01_E2_NonJSONContentType(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to read response body: %v", err)
 	}
-	var errResp map[string]interface{}
+	var errResp map[string]any
 	if err := json.Unmarshal(respBody, &errResp); err != nil {
 		t.Fatalf("response body is not valid JSON: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestTS01_E3_EmptyRequestBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected status 400, got %d", resp.StatusCode)
@@ -150,7 +150,7 @@ func TestTS01_E3_EmptyRequestBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to read response body: %v", err)
 	}
-	var errResp map[string]interface{}
+	var errResp map[string]any
 	if err := json.Unmarshal(respBody, &errResp); err != nil {
 		t.Fatalf("response body is not valid JSON: %v", err)
 	}
@@ -191,7 +191,7 @@ func TestTS01_E4_DatabaseInsertFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Errorf("expected status 500, got %d", resp.StatusCode)
@@ -208,7 +208,7 @@ func TestTS01_E4_DatabaseInsertFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to read response body: %v", err)
 	}
-	var errResp map[string]interface{}
+	var errResp map[string]any
 	if err := json.Unmarshal(respBody, &errResp); err != nil {
 		t.Fatalf("response body is not valid JSON: %v", err)
 	}

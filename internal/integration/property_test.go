@@ -39,7 +39,7 @@ func TestTS01_P1_AuthenticatedRequestsAlwaysPersisted(t *testing.T) {
 
 	// Add some randomly generated bodies.
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		key := fmt.Sprintf("prop_key_%d", i)
 		val := rng.Intn(10000)
 		testBodies = append(testBodies, fmt.Sprintf(`{"%s":%d}`, key, val))
@@ -61,7 +61,7 @@ func TestTS01_P1_AuthenticatedRequestsAlwaysPersisted(t *testing.T) {
 			if err != nil {
 				t.Fatalf("request failed: %v", err)
 			}
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 
 			after := time.Now().UTC().Add(2 * time.Second)
 
@@ -138,7 +138,10 @@ func TestTS01_P2_UnauthenticatedRequestsNeverReachStorage(t *testing.T) {
 		{"wrong_token", "Bearer wrong-token", true},
 		{"wrong_scheme_basic", "Basic " + testBearerToken, true},
 		{"wrong_scheme_token", "Token " + testBearerToken, true},
-		{"trailing_space_token", "Bearer " + testBearerToken + " ", true},
+		// NOTE: "trailing_space_token" case removed — Go's net/http textproto
+		// reader strips trailing whitespace from header lines before the
+		// application sees them, making it impossible to detect a trailing
+		// space in the Authorization header value. See docs/errata/01_go_http_trailing_whitespace.md.
 		{"leading_space_token", "Bearer  " + testBearerToken, true},
 	}
 
@@ -160,7 +163,7 @@ func TestTS01_P2_UnauthenticatedRequestsNeverReachStorage(t *testing.T) {
 			if err != nil {
 				t.Fatalf("request failed: %v", err)
 			}
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 
 			// Assert 401 Unauthorized.
 			if resp.StatusCode != http.StatusUnauthorized {
@@ -219,7 +222,7 @@ func TestTS01_P3_InvalidPayloadNeverReachesStorage(t *testing.T) {
 			if err != nil {
 				t.Fatalf("request failed: %v", err)
 			}
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 
 			// Assert 400 Bad Request.
 			if resp.StatusCode != http.StatusBadRequest {
@@ -250,7 +253,7 @@ func TestTS01_P4_ReadinessReflectsDBAvailability(t *testing.T) {
 		if err != nil {
 			t.Fatalf("request failed: %v", err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("expected status 200 when DB is available, got %d", resp.StatusCode)
@@ -266,7 +269,7 @@ func TestTS01_P4_ReadinessReflectsDBAvailability(t *testing.T) {
 		if err != nil {
 			t.Fatalf("request failed: %v", err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		if resp.StatusCode != http.StatusServiceUnavailable {
 			t.Errorf("expected status 503 when DB is unavailable, got %d", resp.StatusCode)

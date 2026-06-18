@@ -49,5 +49,7 @@ This test case represents a spec assumption that conflicts with Go's HTTP
 implementation of RFC 7230. The trailing whitespace is not observable by
 application code because the HTTP transport layer removes it before delivery.
 
-No middleware-level fix is possible. The test should be updated to remove this
-case or accept the pass-through behavior as correct.
+No middleware-level fix is possible. The `trailing_space_token` sub-case has
+been removed from `TestTS01_P2_UnauthenticatedRequestsNeverReachStorage` in
+task group 10, with a code comment explaining the reason and pointing to this
+erratum.

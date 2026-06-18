@@ -731,7 +731,7 @@
             "01-REQ-7.3",
             "01-REQ-7.4"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -750,7 +750,7 @@
             "TS-01-P5"
           ],
           "requirement_refs": [],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -763,7 +763,7 @@
           ],
           "test_spec_refs": [],
           "requirement_refs": [],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],
