@@ -1,79 +1,45 @@
 # example-service
-Example how to use af and spec to build a simple API service
 
-## Project setup
+A step-by-step example of using **af** (agent-fox) and **spec** to go from a product idea to a working API service. `spec` turns a rough PRD into a structured specification; `af` implements it task-by-task.
 
-Prepare a `prd.md` file.
+The result is a Go HTTP service that ingests events via `POST /v1/events`, stores them in SQLite, and includes auth, health checks, and structured logging.
 
-Initialize the repo to work with `agent-fox`:
+## 1. Initialize
+
+Start with a `prd.md` describing what you want to build, then initialize the repo:
 
 ```shell
 af init
 ```
 
-## Spec creation and refinement
+## 2. Create a spec
 
-Create the first specification package from the `prd.md`:
+Create a specification package from the PRD:
 
 ```shell
 spec new --name "basic_svc" prd.md
 ```
 
-Let `spec refine` do a first pass on the prd.md and provide feedback:
+## 3. Refine the spec
+
+Run `spec refine` to get feedback and questions about your PRD:
 
 ```shell
 spec refine 01_basic_svc
 ```
 
-`spec refine` creates an assessment of the prd and creates a list of questions that must be answered to finalize the PRD.
-
-Submit your answers:
-
-```shell
-spec refine --answers answers.json 01_basic_svc
-```
-
-Example of an `answers.json` file:
-
-```json
-{
-    "answers": {
-    "q1": "Use the suggested statement above as-is",
-    "q2": "The service successfully accepts a POST /events request with a valid bearer token and stores the raw event body in SQLite, returning a 2xx response.",
-    "q3": "Running the same sequence of af and spec commands based on the same prd.md file will allow us to evaluate the performance of af and spec commands.",
-    "q4": "POST /v1/events",
-    "q5": "201 Created with an empty body",
-    "q6": "Require Content-Type: application/json and a non-empty body; reject with 400 otherwise",
-    "q7": "Single table with columns: id (UUID), payload (TEXT/JSON), received_at (DATETIME, auto-set on insert)",
-    "q8": "The agent-fox team"
-  }
-}
-```
-
-Running `spec refine` again, without providing answers to pending questions issues a template .json file with suggestions:
+This produces an assessment and a set of questions that need answers before the spec is complete. Running without `--answers` outputs a template JSON with suggested options:
 
 ```json
 {
   "questions": [
     {
       "id": "q1",
-      "text": "Can you provide a one-sentence Intent statement for this spec? For example: 'To provide a minimal, verifiable HTTP ingestion service that receives and persists audit events from agent-fox instances for integration testing purposes.'",
-      "context": "The Intent section is a required field in the spec format and must be a discrete, clearly articulated statement rather than prose embedded in an Overview.",
+      "text": "Can you provide a one-sentence Intent statement for this spec?",
       "options": [
         "Use the suggested statement above as-is",
-        "Use a modified version of the suggested statement",
+        "Use a modified version",
         "Provide a custom intent statement"
-      ],
-      "required": true
-    },
-    {
-      "id": "q2",
-      "text": "Even for an early-phase test service, can you define at least one minimal, verifiable success criterion for the Goals section?",
-      "context": "Without any goals, there is no basis for determining when the service is 'done' or passing. Even a simple functional goal helps downstream artifact generation.",
-      "options": [
-        "The service successfully accepts a POST /events request with a valid bearer token and stores the raw event body in SQLite, returning a 2xx response.",
-        "The service passes a defined end-to-end smoke test: send one event, confirm it is persisted in the database.",
-        "No goals \u2014 this is a throwaway test harness and correctness is judged informally."
       ],
       "required": true
     }
@@ -81,92 +47,116 @@ Running `spec refine` again, without providing answers to pending questions issu
 }
 ```
 
-Based on the provided answers, the PRD will be updated and `spec` will ask further questions should the PRD still not be ready for implementation. 
-You simply repeat the above `spec refine` -> `spec refine --answers` loop until your are satisfied with the quality of the PRD.
+Submit your answers:
 
-Once the PRD is "good enough", let `spec` create the remaining artefacts:
+```shell
+spec refine --answers answers.json 01_basic_svc
+```
+
+Where `answers.json` maps question IDs to your choices:
+
+```json
+{
+  "answers": {
+    "q1": "Use the suggested statement above as-is",
+    "q2": "The service successfully accepts a POST /events request with a valid bearer token and stores the raw event body in SQLite, returning a 2xx response.",
+    "q3": "POST /v1/events",
+    "q4": "201 Created with an empty body"
+  }
+}
+```
+
+Repeat the `spec refine` / `--answers` loop until the PRD is ready.
+
+## 4. Generate artifacts
+
+Once the spec is solid, generate the full artifact set:
 
 ```shell
 spec generate 01_basic_svc
 ```
 
-The folder should now contain the following files:
+This produces:
 
-- prd.md
-- requirements.json
-- test_spec.json
-- tasks.json
+| File | Purpose |
+|------|---------|
+| `prd.md` | Finalized product requirements |
+| `requirements.json` | Structured requirements |
+| `test_spec.json` | Test definitions |
+| `tasks.json` | Implementation task graph |
 
-The specification is now ready for implementation. Add all new and updated files to `git` and commit them.
+Commit everything before moving on.
 
-## Coding
+## 5. Plan
 
-Create an implementation plan:
+Create an execution plan from the spec:
 
 ```shell
 af plan --spec 01_basic_svc
 ```
 
-`agent-fox` analyses the spec and its dependencies and creates a task graph for the orchestrator:
+`af` analyzes the spec and builds a task graph with dependencies, review gates, and a verification step:
 
-```shell
+```
 Execution Plan
 ========================================
 Specs:         01_basic_svc
 Total tasks:   11
 Review nodes:  3
 Dependencies:  13
-Fast mode:     off
+
 Execution order:
-    1. 01_basic_svc:0:reviewer:drift-review — Reviewer (drift-review)                                                                                              
-    2. 01_basic_svc:0:reviewer:pre-review — Reviewer (pre-review)
-    3. 01_basic_svc:1 — Write Integration and Property Tests
-    4. 01_basic_svc:2 — Initialise Go Module and Project Layout                                                                                                    
-    5. 01_basic_svc:3 — Implement Configuration Loading
-    6. 01_basic_svc:4 — Implement Structured JSON Logging                                                                                                          
-    7. 01_basic_svc:5 — Implement Database Initialisation and Schema                                                                                               
-    8. 01_basic_svc:6 — Implement Bearer Token Authentication Middleware
-    9. 01_basic_svc:7 — Implement POST /v1/events Handler                                                                                                          
-    10. 01_basic_svc:8 — Implement Health Check Endpoints
-    11. 01_basic_svc:9 — Implement Graceful Shutdown                                                                                                               
-    12. 01_basic_svc:10 — Integration Test Suite Pass Checkpoint
-    13. 01_basic_svc:11 — Wiring Verification and End-to-End Smoke Tests                                                                                           
-    14. 01_basic_svc:0:verifier — Verifier Check
-  ```
+  1. drift-review          — Reviewer
+  2. pre-review            — Reviewer
+  3. Write Tests
+  4. Init Go Module
+  5. Configuration Loading
+  6. Structured Logging
+  7. Database Schema
+  8. Auth Middleware
+  9. POST /v1/events Handler
+  10. Health Check Endpoints
+  11. Graceful Shutdown
+  12. Integration Checkpoint
+  13. End-to-End Smoke Tests
+  14. Verifier Check
+```
 
-Make sure everything is committed by now, and merged into branch `develop`. 
+Make sure everything is committed and merged into `develop`.
 
-Now start coding:
+## 6. Code
+
+Start the implementation:
 
 ```shell
 af code
 ```
 
-`agent-fox` will implement the specification, one task at a time:
+`af` works through the task graph, implementing each task in order:
 
-```shell
+```
   /\_/\   _
   / o.o \/\ \
  ( > ^ < ) ) )
   \_^/\_/--'
-agent-fox v4.0.0-rc1 (2b0a618).  model: claude-opus-4-6
-/Users/candlekeep/devel/workspace/example-service
-✔ 01_basic_svc:0:reviewer:drift-review [reviewer] done (1m 19s)
-✔ 01_basic_svc:0:reviewer:pre-review [reviewer] done (2m 52s)
-✔ 01_basic_svc:1 [coder] done (12m 13s)
-✔ 01_basic_svc:2 [coder] done (2m 56s)
-✔ 01_basic_svc:4 [coder] done (5m 5s)
-✔ 01_basic_svc:5 [coder] done (5m 21s)                                                                                                                         
-✔ 01_basic_svc:6 [coder] done (6m 0s)
-✔ 01_basic_svc:7 [coder] done (3m 48s)
-✔ 01_basic_svc:8 [coder] done (3m 14s)
-✔ 01_basic_svc:9 [coder] done (7m 4s)
-✔ 01_basic_svc:10 [coder] done (10m 48s)
-✔ 01_basic_svc:11 [coder] done (7m 6s)
-✔ 01_basic_svc:0:verifier [verifier] done (4m 3s)
-Tasks:  14/14 done
-Tokens: 35.5k in / 193.7k out
-Cost:   $27.74
-Status: completed
+agent-fox v4.0.0-rc1
 
+✔ drift-review     [reviewer]  done (1m 19s)
+✔ pre-review       [reviewer]  done (2m 52s)
+✔ Write Tests      [coder]     done (12m 13s)
+✔ Init Go Module   [coder]     done (2m 56s)
+✔ Logging          [coder]     done (5m 5s)
+✔ Database         [coder]     done (5m 21s)
+✔ Auth Middleware   [coder]     done (6m 0s)
+✔ Events Handler   [coder]     done (3m 48s)
+✔ Health Checks    [coder]     done (3m 14s)
+✔ Shutdown         [coder]     done (7m 4s)
+✔ Integration      [coder]     done (10m 48s)
+✔ Smoke Tests      [coder]     done (7m 6s)
+✔ Verifier         [verifier]  done (4m 3s)
+
+Tasks:  14/14 done
+Status: completed
 ```
+
+When it finishes, you have a working, tested service ready to run.
