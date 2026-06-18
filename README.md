@@ -138,4 +138,29 @@ Make sure everything is committed by now, and merged into branch `develop`. Now 
 
 ```shell
 af code
+
+  /\_/\   _
+  / o.o \/\ \
+ ( > ^ < ) ) )
+  \_^/\_/--'
+agent-fox v4.0.0-rc1 (2b0a618).  model: claude-opus-4-6
+/Users/candlekeep/devel/workspace/example-service
+✔ 01_basic_svc:0:reviewer:drift-review [reviewer] done (1m 19s)
+✔ 01_basic_svc:0:reviewer:pre-review [reviewer] done (2m 52s)
+✔ 01_basic_svc:1 [coder] done (12m 13s)
+✔ 01_basic_svc:2 [coder] done (2m 56s)
+✔ 01_basic_svc:4 [coder] done (5m 5s)
+✔ 01_basic_svc:5 [coder] done (5m 21s)                                                                                                                         
+✔ 01_basic_svc:6 [coder] done (6m 0s)
+✔ 01_basic_svc:7 [coder] done (3m 48s)
+✔ 01_basic_svc:8 [coder] done (3m 14s)
+✔ 01_basic_svc:9 [coder] done (7m 4s)
+✔ 01_basic_svc:10 [coder] done (10m 48s)
+✔ 01_basic_svc:11 [coder] done (7m 6s)
+✔ 01_basic_svc:0:verifier [verifier] done (4m 3s)
+Tasks:  14/14 done
+Tokens: 35.5k in / 193.7k out
+Cost:   $27.74
+Status: completed
+
 ```
