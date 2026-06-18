@@ -1,0 +1,557 @@
+{
+  "$schema": null,
+  "spec_id": "01",
+  "spec_name": "basic_svc",
+  "schema_version": 1,
+  "introduction": "basic_svc is a minimal HTTP ingestion service that receives audit events from agent-fox instances via POST and persists them to a local embedded SQLite database, serving as a concrete, end-to-end verifiable integration target for agent-fox tooling and spec validation.",
+  "glossary": {
+    "AUTH_BEARER_TOKEN": "Environment variable holding the static shared secret used for bearer token authentication; required with no default value.",
+    "Bearer <token>": "The exact Authorization header format required for authentication; the prefix 'Bearer ' (capital B, single space) is mandatory.",
+    "DB_PATH": "Environment variable specifying the file path for the SQLite database; defaults to ./data/events.db.",
+    "Echo Framework": "The Go HTTP framework used to implement routing, middleware, and error handling for this service.",
+    "GET /healthz": "Liveness probe endpoint; returns 200 OK when the service process is running.",
+    "GET /readyz": "Readiness probe endpoint; verifies database availability via a lightweight SQL ping and returns 200 OK or 503 Service Unavailable.",
+    "LOG_LEVEL": "Environment variable controlling logging verbosity; accepts debug, info, warn, or error; defaults to info.",
+    "PORT": "Environment variable specifying the HTTP listen port; defaults to 8080.",
+    "POST /v1/events": "The HTTP endpoint for ingesting audit events; accepts a JSON body and a valid bearer token, storing the raw event in SQLite and returning 201 Created.",
+    "SELECT 1": "A lightweight SQL query used as a database ping to verify connectivity in the readiness probe.",
+    "SIGINT": "Unix signal (Ctrl-C) used to initiate graceful shutdown during local development.",
+    "SIGTERM": "Unix signal sent by Kubernetes to initiate graceful pod termination.",
+    "af": "Short form of agent-fox; the CLI tooling that drives audit event ingestion and spec validation.",
+    "agent-fox": "The tooling suite (also abbreviated af) that sends audit events to this service and exercises its integration pipeline.",
+    "events": "The single SQLite table that stores ingested audit event payloads along with a UUID primary key and receipt timestamp.",
+    "modernc.org/sqlite": "The pure-Go SQLite driver used for embedded database access without CGO.",
+    "payload": "The TEXT column in the events table that stores the raw JSON body of an ingested audit event.",
+    "received_at": "The DATETIME column in the events table that is automatically set to the current UTC time when an event is inserted."
+  },
+  "requirements": [
+    {
+      "id": "01-REQ-1",
+      "title": "Event ingestion endpoint",
+      "user_story": {
+        "role": "agent-fox instance",
+        "goal": "POST an audit event to the service with a valid bearer token and JSON body",
+        "benefit": "the event is persisted in SQLite and I receive a 201 Created confirmation"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-1.1",
+          "ears_pattern": "event_driven",
+          "system": "basic_svc",
+          "action": "store the raw JSON body in the events table and return 201 Created with an empty response body and no Content-Type header",
+          "return_contract": "HTTP 201 Created; empty response body; no Content-Type header set on the response",
+          "trigger": "a POST /v1/events request is received with a valid Authorization header, Content-Type: application/json, and a non-empty body"
+        },
+        {
+          "id": "01-REQ-1.2",
+          "ears_pattern": "ubiquitous",
+          "system": "basic_svc",
+          "action": "accept and store the raw JSON body of a POST /v1/events request as-is without performing any schema validation beyond confirming the body is non-empty",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-1.3",
+          "ears_pattern": "ubiquitous",
+          "system": "basic_svc",
+          "action": "generate a UUID for the id column and set received_at to the current UTC time on every insert into the events table",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "01-REQ-1.E1",
+          "ears_pattern": "unwanted",
+          "system": "basic_svc",
+          "action": "reject the request and return 400 Bad Request with an Echo Framework error body",
+          "return_contract": "HTTP 400 Bad Request; body: {\"message\": \"<error description>\"}; Content-Type: application/json",
+          "error_condition": "the Content-Type header is absent or is not application/json"
+        },
+        {
+          "id": "01-REQ-1.E2",
+          "ears_pattern": "unwanted",
+          "system": "basic_svc",
+          "action": "reject the request and return 400 Bad Request with an Echo Framework error body",
+          "return_contract": "HTTP 400 Bad Request; body: {\"message\": \"<error description>\"}; Content-Type: application/json",
+          "error_condition": "the request body is empty"
+        },
+        {
+          "id": "01-REQ-1.E3",
+          "ears_pattern": "unwanted",
+          "system": "basic_svc",
+          "action": "return 500 Internal Server Error with an Echo Framework error body",
+          "return_contract": "HTTP 500 Internal Server Error; body: {\"message\": \"<error description>\"}; Content-Type: application/json",
+          "error_condition": "a database or internal error occurs while storing the event"
+        }
+      ]
+    },
+    {
+      "id": "01-REQ-2",
+      "title": "Bearer token authentication",
+      "user_story": {
+        "role": "service operator",
+        "goal": "restrict POST /v1/events to callers presenting the correct static bearer token",
+        "benefit": "unauthorised clients cannot ingest events into the database"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-2.1",
+          "ears_pattern": "ubiquitous",
+          "system": "basic_svc",
+          "action": "extract the bearer token from the Authorization header using exactly the format 'Bearer <token>' (capital B, single space) and compare it against the value of AUTH_BEARER_TOKEN",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-2.2",
+          "ears_pattern": "event_driven",
+          "system": "basic_svc",
+          "action": "allow the request to proceed to payload validation and storage",
+          "return_contract": null,
+          "trigger": "the extracted token matches AUTH_BEARER_TOKEN"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "01-REQ-2.E1",
+          "ears_pattern": "unwanted",
+          "system": "basic_svc",
+          "action": "reject the request and return 401 Unauthorized with an Echo Framework error body",
+          "return_contract": "HTTP 401 Unauthorized; body: {\"message\": \"<error description>\"}; Content-Type: application/json",
+          "error_condition": "the Authorization header is missing"
+        },
+        {
+          "id": "01-REQ-2.E2",
+          "ears_pattern": "unwanted",
+          "system": "basic_svc",
+          "action": "reject the request and return 401 Unauthorized with an Echo Framework error body",
+          "return_contract": "HTTP 401 Unauthorized; body: {\"message\": \"<error description>\"}; Content-Type: application/json",
+          "error_condition": "the Authorization header is present but does not begin with exactly 'Bearer ' (capital B, single space), has extra whitespace, or is otherwise malformed"
+        },
+        {
+          "id": "01-REQ-2.E3",
+          "ears_pattern": "unwanted",
+          "system": "basic_svc",
+          "action": "reject the request and return 401 Unauthorized with an Echo Framework error body",
+          "return_contract": "HTTP 401 Unauthorized; body: {\"message\": \"<error description>\"}; Content-Type: application/json",
+          "error_condition": "the Authorization header is well-formed but the token value does not match AUTH_BEARER_TOKEN"
+        }
+      ]
+    },
+    {
+      "id": "01-REQ-3",
+      "title": "Health check endpoints",
+      "user_story": {
+        "role": "Kubernetes cluster",
+        "goal": "probe liveness and readiness of basic_svc",
+        "benefit": "unhealthy pods are restarted and traffic is only routed to ready instances"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-3.1",
+          "ears_pattern": "event_driven",
+          "system": "basic_svc",
+          "action": "return 200 OK",
+          "return_contract": "HTTP 200 OK",
+          "trigger": "a GET /healthz request is received"
+        },
+        {
+          "id": "01-REQ-3.2",
+          "ears_pattern": "event_driven",
+          "system": "basic_svc",
+          "action": "return 200 OK",
+          "return_contract": "HTTP 200 OK",
+          "trigger": "a GET /readyz request is received and the SELECT 1 query against the database succeeds"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "01-REQ-3.E1",
+          "ears_pattern": "unwanted",
+          "system": "basic_svc",
+          "action": "return 503 Service Unavailable with body {\"message\": \"service unavailable\"}",
+          "return_contract": "HTTP 503 Service Unavailable; body: {\"message\": \"service unavailable\"}; Content-Type: application/json",
+          "error_condition": "the SELECT 1 query fails or the database connection is unavailable when GET /readyz is received"
+        }
+      ]
+    },
+    {
+      "id": "01-REQ-4",
+      "title": "Service configuration via environment variables",
+      "user_story": {
+        "role": "service operator",
+        "goal": "configure basic_svc entirely through environment variables",
+        "benefit": "the service can be deployed in different environments without code changes"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-4.1",
+          "ears_pattern": "ubiquitous",
+          "system": "basic_svc",
+          "action": "read PORT (default 8080), DB_PATH (default ./data/events.db), AUTH_BEARER_TOKEN (required, no default), and LOG_LEVEL (default info) from environment variables at startup",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-4.2",
+          "ears_pattern": "state_driven",
+          "system": "basic_svc",
+          "action": "fail to start and emit a descriptive error message",
+          "return_contract": "non-zero process exit; descriptive error message written to stderr or structured log output",
+          "state": "AUTH_BEARER_TOKEN is absent from the environment at startup"
+        },
+        {
+          "id": "01-REQ-4.3",
+          "ears_pattern": "state_driven",
+          "system": "basic_svc",
+          "action": "fail to start and emit a descriptive error message",
+          "return_contract": "non-zero process exit; descriptive error message written to stderr or structured log output",
+          "state": "LOG_LEVEL is set to an invalid value at startup"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "01-REQ-5",
+      "title": "Structured JSON logging",
+      "user_story": {
+        "role": "platform engineer",
+        "goal": "consume structured JSON log output from basic_svc",
+        "benefit": "logs can be ingested and queried by log aggregation pipelines such as Fluentd or Loki"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-5.1",
+          "ears_pattern": "ubiquitous",
+          "system": "basic_svc",
+          "action": "emit all log entries as JSON objects to support log aggregation pipelines",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-5.2",
+          "ears_pattern": "ubiquitous",
+          "system": "basic_svc",
+          "action": "honour the LOG_LEVEL value (debug, info, warn, error) to filter log output at runtime",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "01-REQ-6",
+      "title": "Graceful shutdown on SIGTERM and SIGINT",
+      "user_story": {
+        "role": "Kubernetes cluster",
+        "goal": "send SIGTERM to basic_svc during pod termination",
+        "benefit": "in-flight requests complete before the process exits, avoiding dropped connections"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-6.1",
+          "ears_pattern": "event_driven",
+          "system": "basic_svc",
+          "action": "stop accepting new connections and allow in-flight requests to complete before exiting, enforcing a maximum shutdown timeout of 30 seconds",
+          "return_contract": null,
+          "trigger": "a SIGTERM or SIGINT signal is received"
+        },
+        {
+          "id": "01-REQ-6.2",
+          "ears_pattern": "state_driven",
+          "system": "basic_svc",
+          "action": "exit the process regardless of pending requests",
+          "return_contract": null,
+          "state": "the 30-second shutdown timeout expires before all in-flight requests have completed"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "01-REQ-7",
+      "title": "Integration test coverage",
+      "user_story": {
+        "role": "developer",
+        "goal": "run integration tests that exercise the full HTTP-to-SQLite pipeline",
+        "benefit": "regressions in ingestion, authentication, validation, and health checks are caught automatically"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-7.1",
+          "ears_pattern": "ubiquitous",
+          "system": "basic_svc test suite",
+          "action": "include an integration test that sends a POST /v1/events request with a valid token and payload, asserts a 201 Created response, and verifies the event is persisted in SQLite",
+          "return_contract": "test passes; HTTP 201 verified; event row present in events table"
+        },
+        {
+          "id": "01-REQ-7.2",
+          "ears_pattern": "ubiquitous",
+          "system": "basic_svc test suite",
+          "action": "include integration tests that send POST /v1/events with missing or invalid bearer tokens and assert 401 Unauthorized responses",
+          "return_contract": "test passes; HTTP 401 verified for each invalid token scenario"
+        },
+        {
+          "id": "01-REQ-7.3",
+          "ears_pattern": "ubiquitous",
+          "system": "basic_svc test suite",
+          "action": "include integration tests that send POST /v1/events with a missing Content-Type header and with an empty body, asserting 400 Bad Request responses",
+          "return_contract": "test passes; HTTP 400 verified for each invalid payload scenario"
+        },
+        {
+          "id": "01-REQ-7.4",
+          "ears_pattern": "ubiquitous",
+          "system": "basic_svc test suite",
+          "action": "include integration tests for GET /healthz and GET /readyz under normal operating conditions, asserting 200 OK responses",
+          "return_contract": "test passes; HTTP 200 verified for both health check endpoints"
+        }
+      ],
+      "edge_cases": []
+    }
+  ],
+  "correctness_properties": [
+    {
+      "id": "01-PROP-1",
+      "title": "Authenticated requests are always persisted",
+      "for_any": "POST /v1/events request that passes bearer token validation, Content-Type validation, and body non-emptiness validation",
+      "invariant": "exactly one row is inserted into the events table with the raw body stored in payload and received_at set to the current UTC time",
+      "validates": [
+        "01-REQ-1.1",
+        "01-REQ-1.2",
+        "01-REQ-1.3"
+      ]
+    },
+    {
+      "id": "01-PROP-2",
+      "title": "Unauthenticated requests never reach storage",
+      "for_any": "POST /v1/events request with a missing, malformed, or incorrect Authorization header",
+      "invariant": "no row is inserted into the events table and the response status is 401 Unauthorized",
+      "validates": [
+        "01-REQ-2.E1",
+        "01-REQ-2.E2",
+        "01-REQ-2.E3"
+      ]
+    },
+    {
+      "id": "01-PROP-3",
+      "title": "Invalid payload requests never reach storage",
+      "for_any": "POST /v1/events request with a valid bearer token but a missing Content-Type: application/json header or an empty body",
+      "invariant": "no row is inserted into the events table and the response status is 400 Bad Request",
+      "validates": [
+        "01-REQ-1.E1",
+        "01-REQ-1.E2"
+      ]
+    },
+    {
+      "id": "01-PROP-4",
+      "title": "Readiness reflects database availability",
+      "for_any": "GET /readyz request",
+      "invariant": "the response is 200 OK if and only if the SELECT 1 query succeeds; otherwise the response is 503 Service Unavailable",
+      "validates": [
+        "01-REQ-3.2",
+        "01-REQ-3.E1"
+      ]
+    },
+    {
+      "id": "01-PROP-5",
+      "title": "Service startup requires AUTH_BEARER_TOKEN",
+      "for_any": "service startup attempt without AUTH_BEARER_TOKEN set in the environment",
+      "invariant": "the process exits with a non-zero status and emits a descriptive error before binding to any port",
+      "validates": [
+        "01-REQ-4.2"
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "01-PATH-1",
+      "title": "Successful audit event ingestion",
+      "steps": [
+        {
+          "actor": "agent-fox instance",
+          "action": "sends POST /v1/events with Authorization: Bearer <token>, Content-Type: application/json, and a non-empty JSON body"
+        },
+        {
+          "actor": "basic_svc",
+          "action": "extracts and validates the bearer token against AUTH_BEARER_TOKEN"
+        },
+        {
+          "actor": "basic_svc",
+          "action": "validates that Content-Type is application/json and that the body is non-empty"
+        },
+        {
+          "actor": "basic_svc",
+          "action": "inserts a new row into the events table with a generated UUID, the raw JSON payload, and the current UTC timestamp in received_at"
+        },
+        {
+          "actor": "basic_svc",
+          "action": "returns HTTP 201 Created with an empty response body and no Content-Type header"
+        }
+      ]
+    },
+    {
+      "id": "01-PATH-2",
+      "title": "Rejected request — invalid bearer token",
+      "steps": [
+        {
+          "actor": "agent-fox instance",
+          "action": "sends POST /v1/events with a missing, malformed, or incorrect Authorization header"
+        },
+        {
+          "actor": "basic_svc",
+          "action": "detects the missing or invalid bearer token during authentication middleware processing"
+        },
+        {
+          "actor": "basic_svc",
+          "action": "returns HTTP 401 Unauthorized with an Echo Framework error body and does not write to the events table"
+        }
+      ]
+    },
+    {
+      "id": "01-PATH-3",
+      "title": "Rejected request — invalid payload",
+      "steps": [
+        {
+          "actor": "agent-fox instance",
+          "action": "sends POST /v1/events with a valid bearer token but either no Content-Type: application/json header or an empty body"
+        },
+        {
+          "actor": "basic_svc",
+          "action": "validates the Content-Type header and body size after authentication succeeds"
+        },
+        {
+          "actor": "basic_svc",
+          "action": "returns HTTP 400 Bad Request with an Echo Framework error body and does not write to the events table"
+        }
+      ]
+    },
+    {
+      "id": "01-PATH-4",
+      "title": "Liveness probe check",
+      "steps": [
+        {
+          "actor": "Kubernetes kubelet",
+          "action": "sends GET /healthz to verify the process is alive"
+        },
+        {
+          "actor": "basic_svc",
+          "action": "returns HTTP 200 OK immediately without performing any database checks"
+        }
+      ]
+    },
+    {
+      "id": "01-PATH-5",
+      "title": "Readiness probe check — database available",
+      "steps": [
+        {
+          "actor": "Kubernetes kubelet",
+          "action": "sends GET /readyz to verify the service is ready to handle traffic"
+        },
+        {
+          "actor": "basic_svc",
+          "action": "executes SELECT 1 against the SQLite database to confirm connectivity"
+        },
+        {
+          "actor": "basic_svc",
+          "action": "returns HTTP 200 OK indicating the service is ready"
+        }
+      ]
+    },
+    {
+      "id": "01-PATH-6",
+      "title": "Readiness probe check — database unavailable",
+      "steps": [
+        {
+          "actor": "Kubernetes kubelet",
+          "action": "sends GET /readyz to verify service readiness"
+        },
+        {
+          "actor": "basic_svc",
+          "action": "executes SELECT 1 against the SQLite database and the query fails or the connection is unavailable"
+        },
+        {
+          "actor": "basic_svc",
+          "action": "returns HTTP 503 Service Unavailable with body {\"message\": \"service unavailable\"}"
+        }
+      ]
+    },
+    {
+      "id": "01-PATH-7",
+      "title": "Graceful shutdown on termination signal",
+      "steps": [
+        {
+          "actor": "Kubernetes cluster",
+          "action": "sends SIGTERM to the basic_svc process to initiate pod termination"
+        },
+        {
+          "actor": "basic_svc",
+          "action": "stops accepting new incoming connections"
+        },
+        {
+          "actor": "basic_svc",
+          "action": "waits for in-flight requests to complete, up to a maximum of 30 seconds"
+        },
+        {
+          "actor": "basic_svc",
+          "action": "exits the process cleanly once all in-flight requests are done or the timeout elapses"
+        }
+      ]
+    }
+  ],
+  "error_handling": [
+    {
+      "id": "01-ERR-1",
+      "condition": "Content-Type header is absent or is not application/json on POST /v1/events",
+      "behavior": "Return 400 Bad Request with Echo Framework error body {\"message\": \"<error description>\"} and Content-Type: application/json; do not write to the events table",
+      "requirement_id": "01-REQ-1.E1"
+    },
+    {
+      "id": "01-ERR-2",
+      "condition": "Request body is empty on POST /v1/events",
+      "behavior": "Return 400 Bad Request with Echo Framework error body {\"message\": \"<error description>\"} and Content-Type: application/json; do not write to the events table",
+      "requirement_id": "01-REQ-1.E2"
+    },
+    {
+      "id": "01-ERR-3",
+      "condition": "Database or internal error occurs during event storage",
+      "behavior": "Return 500 Internal Server Error with Echo Framework error body {\"message\": \"<error description>\"} and Content-Type: application/json",
+      "requirement_id": "01-REQ-1.E3"
+    },
+    {
+      "id": "01-ERR-4",
+      "condition": "Authorization header is missing on POST /v1/events",
+      "behavior": "Return 401 Unauthorized with Echo Framework error body {\"message\": \"<error description>\"} and Content-Type: application/json; do not write to the events table",
+      "requirement_id": "01-REQ-2.E1"
+    },
+    {
+      "id": "01-ERR-5",
+      "condition": "Authorization header is present but malformed (wrong prefix casing, extra whitespace, or missing 'Bearer ' prefix)",
+      "behavior": "Return 401 Unauthorized with Echo Framework error body {\"message\": \"<error description>\"} and Content-Type: application/json; do not write to the events table",
+      "requirement_id": "01-REQ-2.E2"
+    },
+    {
+      "id": "01-ERR-6",
+      "condition": "Authorization header is well-formed but the token value does not match AUTH_BEARER_TOKEN",
+      "behavior": "Return 401 Unauthorized with Echo Framework error body {\"message\": \"<error description>\"} and Content-Type: application/json; do not write to the events table",
+      "requirement_id": "01-REQ-2.E3"
+    },
+    {
+      "id": "01-ERR-7",
+      "condition": "SELECT 1 database ping fails or connection is unavailable when GET /readyz is received",
+      "behavior": "Return 503 Service Unavailable with body {\"message\": \"service unavailable\"} and Content-Type: application/json",
+      "requirement_id": "01-REQ-3.E1"
+    },
+    {
+      "id": "01-ERR-8",
+      "condition": "AUTH_BEARER_TOKEN environment variable is absent at service startup",
+      "behavior": "Exit with a non-zero status code and emit a descriptive error message before binding to any port",
+      "requirement_id": "01-REQ-4.2"
+    },
+    {
+      "id": "01-ERR-9",
+      "condition": "LOG_LEVEL environment variable is set to an unrecognised value at service startup",
+      "behavior": "Exit with a non-zero status code and emit a descriptive error message before binding to any port",
+      "requirement_id": "01-REQ-4.3"
+    },
+    {
+      "id": "01-ERR-10",
+      "condition": "Graceful shutdown timeout of 30 seconds elapses before all in-flight requests complete",
+      "behavior": "Force-exit the process regardless of pending requests",
+      "requirement_id": "01-REQ-6.2"
+    }
+  ]
+}

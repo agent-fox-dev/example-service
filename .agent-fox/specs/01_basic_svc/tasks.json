@@ -1,0 +1,1081 @@
+{
+  "$schema": null,
+  "spec_id": "01",
+  "spec_name": "basic_svc",
+  "schema_version": 1,
+  "test_commands": {
+    "spec_tests": "go test ./internal/integration/... -count=1 -v",
+    "all_tests": "go test ./... -count=1 -v",
+    "linter": "go vet ./... && golangci-lint run"
+  },
+  "dependencies": [],
+  "task_groups": [
+    {
+      "id": 1,
+      "kind": "tests",
+      "title": "Write Integration and Property Tests",
+      "subtasks": [
+        {
+          "id": "1.1",
+          "title": "Write integration tests for successful event ingestion",
+          "details": [
+            "Create integration test file (e.g. internal/integration/events_test.go) using Go testing package",
+            "Implement TS-01-1: POST /v1/events with valid bearer token, Content-Type: application/json, non-empty body → assert 201 Created, empty body, no Content-Type header, one row in events table",
+            "Implement TS-01-2: POST /v1/events with arbitrary JSON structure → assert 201 and raw payload stored verbatim",
+            "Implement TS-01-3: POST /v1/events → assert id is valid UUID v4 and received_at is within a few seconds of request time in UTC",
+            "Implement TS-01-4 and TS-01-5: verify token extraction format 'Bearer <token>' and that matching token allows storage"
+          ],
+          "test_spec_refs": [
+            "TS-01-1",
+            "TS-01-2",
+            "TS-01-3",
+            "TS-01-4",
+            "TS-01-5"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.1",
+            "01-REQ-1.2",
+            "01-REQ-1.3",
+            "01-REQ-2.1",
+            "01-REQ-2.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.2",
+          "title": "Write integration tests for authentication rejection",
+          "details": [
+            "Implement TS-01-E5: POST /v1/events with missing Authorization header → assert 401, Echo error body, zero rows in events table",
+            "Implement TS-01-E6: POST /v1/events with malformed Authorization header (wrong casing, extra whitespace, no 'Bearer ' prefix, all-caps) → assert 401 for each variant",
+            "Implement TS-01-E7: POST /v1/events with well-formed header but wrong token value → assert 401 and zero rows in events table"
+          ],
+          "test_spec_refs": [
+            "TS-01-E5",
+            "TS-01-E6",
+            "TS-01-E7"
+          ],
+          "requirement_refs": [
+            "01-REQ-2.E1",
+            "01-REQ-2.E2",
+            "01-REQ-2.E3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.3",
+          "title": "Write integration tests for payload validation rejection",
+          "details": [
+            "Implement TS-01-E1: POST /v1/events with valid token but missing Content-Type header → assert 400, Echo error body with 'message' key, zero rows in events table",
+            "Implement TS-01-E2: POST /v1/events with Content-Type: text/plain → assert 400, Echo error body, zero rows in events table",
+            "Implement TS-01-E3: POST /v1/events with valid token and Content-Type but empty body → assert 400, Echo error body, zero rows in events table",
+            "Implement TS-01-E4: simulate database insert failure → assert 500 Internal Server Error with Echo error body"
+          ],
+          "test_spec_refs": [
+            "TS-01-E1",
+            "TS-01-E2",
+            "TS-01-E3",
+            "TS-01-E4"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.E1",
+            "01-REQ-1.E2",
+            "01-REQ-1.E3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.4",
+          "title": "Write integration tests for health check endpoints",
+          "details": [
+            "Implement TS-01-6: GET /healthz → assert 200 OK",
+            "Implement TS-01-7: GET /readyz with database available → assert 200 OK",
+            "Implement TS-01-E8: GET /readyz with database forced unavailable → assert 503 with body {\"message\": \"service unavailable\"} and Content-Type: application/json"
+          ],
+          "test_spec_refs": [
+            "TS-01-6",
+            "TS-01-7",
+            "TS-01-E8"
+          ],
+          "requirement_refs": [
+            "01-REQ-3.1",
+            "01-REQ-3.2",
+            "01-REQ-3.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.5",
+          "title": "Write integration tests for configuration and startup behaviour",
+          "details": [
+            "Implement TS-01-8: start service with only AUTH_BEARER_TOKEN set; assert it listens on port 8080, uses ./data/events.db, and log level defaults to info",
+            "Implement TS-01-9: start service without AUTH_BEARER_TOKEN → assert non-zero exit code and descriptive error referencing AUTH_BEARER_TOKEN, no port binding",
+            "Implement TS-01-10: start service with LOG_LEVEL=verbose → assert non-zero exit code and descriptive error referencing LOG_LEVEL"
+          ],
+          "test_spec_refs": [
+            "TS-01-8",
+            "TS-01-9",
+            "TS-01-10"
+          ],
+          "requirement_refs": [
+            "01-REQ-4.1",
+            "01-REQ-4.2",
+            "01-REQ-4.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.6",
+          "title": "Write property-based and logging tests",
+          "details": [
+            "Implement TS-01-P1: for arbitrary non-empty JSON bodies with valid auth, assert exactly one row inserted, payload matches, id is UUID, received_at is UTC",
+            "Implement TS-01-P2: for all invalid auth header variants, assert 401 and no rows inserted",
+            "Implement TS-01-P3: for valid token but invalid payload variants, assert 400 and no rows inserted",
+            "Implement TS-01-P4: alternate database available/unavailable states and assert GET /readyz responds 200 or 503 accordingly",
+            "Implement TS-01-P5: for startup without AUTH_BEARER_TOKEN with various other env combos, assert non-zero exit and no port binding",
+            "Implement TS-01-11: capture log output during a request and assert each line is a valid JSON object",
+            "Implement TS-01-12: start service with LOG_LEVEL=warn and assert no debug/info entries are logged"
+          ],
+          "test_spec_refs": [
+            "TS-01-P1",
+            "TS-01-P2",
+            "TS-01-P3",
+            "TS-01-P4",
+            "TS-01-P5",
+            "TS-01-11",
+            "TS-01-12"
+          ],
+          "requirement_refs": [
+            "01-REQ-5.1",
+            "01-REQ-5.2",
+            "01-PROP-1",
+            "01-PROP-2",
+            "01-PROP-3",
+            "01-PROP-4",
+            "01-PROP-5"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "1.V",
+        "checks": [
+          "All test files compile without errors: go build ./...",
+          "Test suite runs (tests fail with 'not implemented' or similar, but no compilation errors): go test ./internal/integration/... -count=1 -run TestPlaceholder",
+          "No linter warnings introduced: golangci-lint run (or go vet ./...)",
+          "Test IDs TS-01-1 through TS-01-18, TS-01-E1 through TS-01-E8, TS-01-P1 through TS-01-P5 are all represented as named test functions in the test files"
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "kind": "standard",
+      "title": "Initialise Go Module and Project Layout",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Create Go module with correct module path",
+          "details": [
+            "Run: go mod init github.com/agent-fox/example-service",
+            "Confirm go.mod contains module path github.com/agent-fox/example-service",
+            "Set Go version to 1.22 or later in go.mod"
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.2",
+          "title": "Establish standard project directory layout",
+          "details": [
+            "Create cmd/server/ directory for the main entrypoint (main.go)",
+            "Create internal/ directory for packages not intended for external import",
+            "Create internal/config/, internal/db/, internal/handler/, internal/middleware/ subdirectories",
+            "Add .gitignore for Go binaries and the SQLite data directory"
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.3",
+          "title": "Add required third-party dependencies",
+          "details": [
+            "Add Echo Framework: go get github.com/labstack/echo/v4",
+            "Add modernc.org/sqlite pure-Go SQLite driver: go get modernc.org/sqlite",
+            "Add a UUID generation library (e.g. github.com/google/uuid): go get github.com/google/uuid",
+            "Run go mod tidy to clean up go.sum",
+            "Confirm CGO_ENABLED=0 builds succeed with the selected sqlite driver"
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "2.V",
+        "checks": [
+          "go.mod contains module github.com/agent-fox/example-service",
+          "go build ./... succeeds with CGO_ENABLED=0",
+          "Directory structure matches cmd/, internal/ layout",
+          "go mod tidy produces no changes (go.sum is consistent)"
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "kind": "standard",
+      "title": "Implement Configuration Loading",
+      "subtasks": [
+        {
+          "id": "3.1",
+          "title": "Define Config struct and environment variable loading",
+          "details": [
+            "Create internal/config/config.go",
+            "Define Config struct with fields: Port (string, default '8080'), DBPath (string, default './data/events.db'), AuthBearerToken (string, required), LogLevel (string, default 'info')",
+            "Implement Load() function that reads PORT, DB_PATH, AUTH_BEARER_TOKEN, LOG_LEVEL from os.Getenv",
+            "Apply defaults for PORT, DB_PATH, LOG_LEVEL when env vars are absent"
+          ],
+          "test_spec_refs": [
+            "TS-01-8"
+          ],
+          "requirement_refs": [
+            "01-REQ-4.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.2",
+          "title": "Enforce required AUTH_BEARER_TOKEN and validate LOG_LEVEL",
+          "details": [
+            "In Load(), if AUTH_BEARER_TOKEN is empty string, return a descriptive error: 'AUTH_BEARER_TOKEN environment variable is required'",
+            "Validate LOG_LEVEL against the allowed set {debug, info, warn, error}; return descriptive error if invalid: 'LOG_LEVEL must be one of: debug, info, warn, error'",
+            "Ensure Load() returns (Config, error) so callers can check errors before starting any servers"
+          ],
+          "test_spec_refs": [
+            "TS-01-9",
+            "TS-01-10"
+          ],
+          "requirement_refs": [
+            "01-REQ-4.2",
+            "01-REQ-4.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.3",
+          "title": "Wire config loading into main entrypoint with fail-fast startup",
+          "details": [
+            "In cmd/server/main.go, call config.Load() as the very first operation",
+            "On error, write descriptive message to stderr and os.Exit(1) before any port binding or database initialisation",
+            "Pass validated Config to all downstream initialisation functions"
+          ],
+          "test_spec_refs": [
+            "TS-01-9",
+            "TS-01-10",
+            "TS-01-P5"
+          ],
+          "requirement_refs": [
+            "01-REQ-4.2",
+            "01-REQ-4.3"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "3.V",
+        "checks": [
+          "TS-01-8 passes: service starts with only AUTH_BEARER_TOKEN set and defaults are applied correctly",
+          "TS-01-9 passes: service exits non-zero with AUTH_BEARER_TOKEN error message when variable is absent",
+          "TS-01-10 passes: service exits non-zero with LOG_LEVEL error message when set to 'verbose'",
+          "go vet ./internal/config/... reports no issues",
+          "01-REQ-4.2 acceptance criteria met: non-zero exit before port binding when AUTH_BEARER_TOKEN is missing"
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "kind": "standard",
+      "title": "Implement Structured JSON Logging",
+      "subtasks": [
+        {
+          "id": "4.1",
+          "title": "Configure structured JSON logger",
+          "details": [
+            "Create internal/logger/logger.go",
+            "Use a structured logging library compatible with JSON output (e.g. log/slog from Go 1.21+ with JSONHandler, or zerolog)",
+            "Implement New(level string) (*slog.Logger, error) that creates a logger with JSONHandler writing to os.Stdout",
+            "Map LOG_LEVEL string values 'debug', 'info', 'warn', 'error' to the corresponding slog.Level values"
+          ],
+          "test_spec_refs": [
+            "TS-01-11",
+            "TS-01-12"
+          ],
+          "requirement_refs": [
+            "01-REQ-5.1",
+            "01-REQ-5.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.2",
+          "title": "Integrate logger into Echo Framework middleware",
+          "details": [
+            "Configure Echo's logger middleware to use the structured JSON logger instead of default format",
+            "Ensure all HTTP request log entries are emitted as JSON objects with at minimum: time, level, method, path, status, latency fields",
+            "Pass logger instance to handler constructors so application-level log calls also emit JSON"
+          ],
+          "test_spec_refs": [
+            "TS-01-11",
+            "TS-01-12"
+          ],
+          "requirement_refs": [
+            "01-REQ-5.1",
+            "01-REQ-5.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "4.V",
+        "checks": [
+          "TS-01-11 passes: every log line captured during a GET /healthz request is a valid JSON object (parseable as map[string]any)",
+          "TS-01-12 passes: with LOG_LEVEL=warn, no log entries with level 'debug' or 'info' appear in output",
+          "go vet ./internal/logger/... reports no issues",
+          "01-REQ-5.1 and 01-REQ-5.2 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "kind": "standard",
+      "title": "Implement Database Initialisation and Schema",
+      "subtasks": [
+        {
+          "id": "5.1",
+          "title": "Implement SQLite database open and schema migration",
+          "details": [
+            "Create internal/db/db.go",
+            "Use modernc.org/sqlite driver: sql.Open(\"sqlite\", dbPath)",
+            "On Open, execute CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, payload TEXT NOT NULL, received_at DATETIME NOT NULL)",
+            "Implement Open(dbPath string) (*sql.DB, error) returning the initialised *sql.DB",
+            "Ensure the directory for DB_PATH is created if it does not exist (os.MkdirAll)"
+          ],
+          "test_spec_refs": [
+            "TS-01-1",
+            "TS-01-3"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.2",
+          "title": "Implement InsertEvent repository function",
+          "details": [
+            "Create internal/db/events.go",
+            "Implement InsertEvent(ctx context.Context, db *sql.DB, payload string) error",
+            "Generate UUID v4 for id using github.com/google/uuid",
+            "Set received_at to time.Now().UTC().Format(time.RFC3339Nano)",
+            "Execute INSERT INTO events (id, payload, received_at) VALUES (?, ?, ?)",
+            "Return any database error to the caller without wrapping it in a generic message (let the handler decide the HTTP status)"
+          ],
+          "test_spec_refs": [
+            "TS-01-1",
+            "TS-01-2",
+            "TS-01-3",
+            "TS-01-P1"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.1",
+            "01-REQ-1.2",
+            "01-REQ-1.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.3",
+          "title": "Implement database ping function for readiness probe",
+          "details": [
+            "Create internal/db/ping.go",
+            "Implement Ping(ctx context.Context, db *sql.DB) error that executes SELECT 1 and returns any error",
+            "Used by the readiness handler to determine database availability"
+          ],
+          "test_spec_refs": [
+            "TS-01-7",
+            "TS-01-E8",
+            "TS-01-P4"
+          ],
+          "requirement_refs": [
+            "01-REQ-3.2",
+            "01-REQ-3.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "5.V",
+        "checks": [
+          "TS-01-3 passes: inserted row has valid UUID id and received_at within expected UTC time window",
+          "TS-01-2 passes: payload is stored verbatim without modification",
+          "TS-01-7 passes: Ping returns nil when database is available",
+          "go vet ./internal/db/... reports no issues",
+          "Database schema matches specification: events table with id TEXT PK, payload TEXT NOT NULL, received_at DATETIME NOT NULL"
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "kind": "standard",
+      "title": "Implement Bearer Token Authentication Middleware",
+      "subtasks": [
+        {
+          "id": "6.1",
+          "title": "Implement bearer token extraction and validation middleware",
+          "details": [
+            "Create internal/middleware/auth.go",
+            "Implement BearerAuth(token string) echo.MiddlewareFunc",
+            "Extract Authorization header; if absent, return echo.NewHTTPError(http.StatusUnauthorized, '...')",
+            "Check that header value begins with exactly 'Bearer ' (capital B, single space); reject with 401 if not (covers wrong casing, extra whitespace, missing prefix)",
+            "Extract the token substring after 'Bearer '; compare with constant-time strings.EqualFold-safe comparison (use subtle.ConstantTimeCompare or strings equality) against the configured token",
+            "If token does not match, return echo.NewHTTPError(http.StatusUnauthorized, '...')",
+            "On success, call next handler"
+          ],
+          "test_spec_refs": [
+            "TS-01-4",
+            "TS-01-E5",
+            "TS-01-E6",
+            "TS-01-E7",
+            "TS-01-P2"
+          ],
+          "requirement_refs": [
+            "01-REQ-2.1",
+            "01-REQ-2.2",
+            "01-REQ-2.E1",
+            "01-REQ-2.E2",
+            "01-REQ-2.E3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.2",
+          "title": "Verify auth middleware returns no database writes on rejection",
+          "details": [
+            "Confirm middleware short-circuits before any handler logic that touches the database",
+            "Auth middleware must be registered before the events handler in the Echo route chain",
+            "Add route-level middleware application: e.POST('/v1/events', handler, middleware.BearerAuth(cfg.AuthBearerToken))"
+          ],
+          "test_spec_refs": [
+            "TS-01-E5",
+            "TS-01-E6",
+            "TS-01-E7",
+            "TS-01-P2"
+          ],
+          "requirement_refs": [
+            "01-PROP-2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "6.V",
+        "checks": [
+          "TS-01-E5 passes: missing Authorization header → 401",
+          "TS-01-E6 passes: all four malformed header variants → 401, zero rows in events table",
+          "TS-01-E7 passes: wrong token value → 401, zero rows in events table",
+          "TS-01-4 passes: correct 'Bearer <token>' format → 201",
+          "TS-01-P2 passes: property test for all invalid auth variants",
+          "go vet ./internal/middleware/... reports no issues",
+          "01-REQ-2.E1, 01-REQ-2.E2, 01-REQ-2.E3 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "kind": "standard",
+      "title": "Implement POST /v1/events Handler",
+      "subtasks": [
+        {
+          "id": "7.1",
+          "title": "Implement payload validation in events handler",
+          "details": [
+            "Create internal/handler/events.go",
+            "Implement EventsHandler struct with db *sql.DB field",
+            "In the handler method, check c.Request().Header.Get('Content-Type'); if not 'application/json', return echo.NewHTTPError(http.StatusBadRequest, '...')",
+            "Read request body; if empty (len == 0), return echo.NewHTTPError(http.StatusBadRequest, '...')",
+            "Do not perform any JSON schema validation beyond non-empty body check"
+          ],
+          "test_spec_refs": [
+            "TS-01-E1",
+            "TS-01-E2",
+            "TS-01-E3",
+            "TS-01-P3"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.1",
+            "01-REQ-1.E1",
+            "01-REQ-1.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.2",
+          "title": "Implement event storage and 201 Created response",
+          "details": [
+            "After validation passes, call db.InsertEvent(ctx, db, string(body))",
+            "On database error, return echo.NewHTTPError(http.StatusInternalServerError, '...')",
+            "On success, return c.NoContent(http.StatusCreated) — this sets status 201 with empty body and no Content-Type header",
+            "Confirm no Content-Type header is set on the 201 response"
+          ],
+          "test_spec_refs": [
+            "TS-01-1",
+            "TS-01-2",
+            "TS-01-3",
+            "TS-01-E4"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.1",
+            "01-REQ-1.2",
+            "01-REQ-1.3",
+            "01-REQ-1.E3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.3",
+          "title": "Register events route with auth middleware in Echo router",
+          "details": [
+            "In main or router setup, register: e.POST('/v1/events', eventsHandler.Handle, middleware.BearerAuth(cfg.AuthBearerToken))",
+            "Confirm route is at exactly /v1/events",
+            "Verify Echo's default error handler formats all error responses as {\"message\": \"...\"} with Content-Type: application/json"
+          ],
+          "test_spec_refs": [
+            "TS-01-1",
+            "TS-01-4"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.1",
+            "01-REQ-2.1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "7.V",
+        "checks": [
+          "TS-01-1 passes: valid request → 201 Created, empty body, no Content-Type, one row in events table",
+          "TS-01-E1 passes: missing Content-Type → 400 with {\"message\": ...}",
+          "TS-01-E2 passes: non-JSON Content-Type → 400 with {\"message\": ...}",
+          "TS-01-E3 passes: empty body → 400 with {\"message\": ...}",
+          "TS-01-E4 passes: DB failure → 500 with {\"message\": ...}",
+          "TS-01-P3 passes: property test for all invalid payload variants",
+          "01-PROP-1 invariant holds: exactly one row inserted per successful request",
+          "01-PROP-3 invariant holds: no rows inserted when payload is invalid"
+        ]
+      }
+    },
+    {
+      "id": 8,
+      "kind": "standard",
+      "title": "Implement Health Check Endpoints",
+      "subtasks": [
+        {
+          "id": "8.1",
+          "title": "Implement GET /healthz liveness handler",
+          "details": [
+            "Create internal/handler/health.go",
+            "Implement LivenessHandler: returns c.NoContent(http.StatusOK) immediately with no database interaction",
+            "Register route: e.GET('/healthz', livenessHandler.Handle)"
+          ],
+          "test_spec_refs": [
+            "TS-01-6"
+          ],
+          "requirement_refs": [
+            "01-REQ-3.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.2",
+          "title": "Implement GET /readyz readiness handler",
+          "details": [
+            "Implement ReadinessHandler struct with db *sql.DB field",
+            "Call db.Ping(ctx, db) inside the handler",
+            "If Ping succeeds, return c.NoContent(http.StatusOK)",
+            "If Ping fails, return c.JSON(http.StatusServiceUnavailable, map[string]string{\"message\": \"service unavailable\"})",
+            "Register route: e.GET('/readyz', readinessHandler.Handle)"
+          ],
+          "test_spec_refs": [
+            "TS-01-7",
+            "TS-01-E8",
+            "TS-01-P4"
+          ],
+          "requirement_refs": [
+            "01-REQ-3.2",
+            "01-REQ-3.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "8.V",
+        "checks": [
+          "TS-01-6 passes: GET /healthz → 200 OK",
+          "TS-01-7 passes: GET /readyz with DB available → 200 OK",
+          "TS-01-E8 passes: GET /readyz with DB unavailable → 503 with {\"message\": \"service unavailable\"} and Content-Type: application/json",
+          "TS-01-P4 passes: property test for readiness reflecting database availability",
+          "01-PROP-4 invariant holds: 200 iff SELECT 1 succeeds",
+          "go vet ./internal/handler/... reports no issues"
+        ]
+      }
+    },
+    {
+      "id": 9,
+      "kind": "standard",
+      "title": "Implement Graceful Shutdown",
+      "subtasks": [
+        {
+          "id": "9.1",
+          "title": "Set up OS signal handling for SIGTERM and SIGINT",
+          "details": [
+            "In cmd/server/main.go, create a channel to receive os.Signal notifications",
+            "Use signal.NotifyContext or signal.Notify to capture syscall.SIGTERM and syscall.SIGINT",
+            "Start the Echo HTTP server in a goroutine so main can wait for the signal channel"
+          ],
+          "test_spec_refs": [
+            "TS-01-13"
+          ],
+          "requirement_refs": [
+            "01-REQ-6.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "9.2",
+          "title": "Implement graceful shutdown with 30-second timeout",
+          "details": [
+            "On signal receipt, call e.Shutdown(ctx) with a context that has a 30-second deadline: ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)",
+            "e.Shutdown stops the server from accepting new connections and waits for in-flight requests",
+            "After Shutdown returns (or timeout), close the database connection and exit cleanly",
+            "If Shutdown returns an error (timeout exceeded), log the error and exit with non-zero code"
+          ],
+          "test_spec_refs": [
+            "TS-01-13",
+            "TS-01-14"
+          ],
+          "requirement_refs": [
+            "01-REQ-6.1",
+            "01-REQ-6.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "9.V",
+        "checks": [
+          "TS-01-13 passes: SIGTERM during in-flight request → request completes with 201, new connections refused, process exits cleanly",
+          "TS-01-14 passes: SIGTERM with artificially slow request (60s) → process exits within ~32 seconds regardless",
+          "01-REQ-6.1 acceptance criteria met: no new connections accepted after signal",
+          "01-REQ-6.2 acceptance criteria met: force-exit after 30-second timeout"
+        ]
+      }
+    },
+    {
+      "id": 10,
+      "kind": "checkpoint",
+      "title": "Integration Test Suite Pass Checkpoint",
+      "subtasks": [
+        {
+          "id": "10.1",
+          "title": "Run full integration test suite and confirm all tests pass",
+          "details": [
+            "Execute: go test ./internal/integration/... -v -count=1",
+            "All TS-01-1 through TS-01-18, TS-01-E1 through TS-01-E8 tests must pass",
+            "Record any failures and fix the implementation, not the tests"
+          ],
+          "test_spec_refs": [
+            "TS-01-15",
+            "TS-01-16",
+            "TS-01-17",
+            "TS-01-18"
+          ],
+          "requirement_refs": [
+            "01-REQ-7.1",
+            "01-REQ-7.2",
+            "01-REQ-7.3",
+            "01-REQ-7.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "10.2",
+          "title": "Run property-based tests and confirm invariants hold",
+          "details": [
+            "Execute property tests TS-01-P1 through TS-01-P5",
+            "Confirm 01-PROP-1 through 01-PROP-5 invariants all pass",
+            "Fix any implementation defects discovered"
+          ],
+          "test_spec_refs": [
+            "TS-01-P1",
+            "TS-01-P2",
+            "TS-01-P3",
+            "TS-01-P4",
+            "TS-01-P5"
+          ],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "10.3",
+          "title": "Run linter and ensure zero warnings",
+          "details": [
+            "Execute: go vet ./...",
+            "Execute: golangci-lint run (if configured) or staticcheck ./...",
+            "Resolve all reported issues before proceeding to wiring verification"
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "10.V",
+        "checks": [
+          "go test ./... -count=1 exits with code 0 — all tests pass",
+          "go vet ./... reports no issues",
+          "All seven requirement groups (01-REQ-1 through 01-REQ-7) have at least one passing test case",
+          "All five correctness properties (01-PROP-1 through 01-PROP-5) are validated by passing property tests"
+        ]
+      }
+    },
+    {
+      "id": 11,
+      "kind": "wiring_verification",
+      "title": "Wiring Verification and End-to-End Smoke Tests",
+      "subtasks": [
+        {
+          "id": "11.1",
+          "title": "Trace all execution paths end-to-end with no stubs remaining",
+          "details": [
+            "Trace 01-PATH-1: confirm HTTP POST → BearerAuth middleware → EventsHandler.Handle → db.InsertEvent → c.NoContent(201) — each function actually calls the next, no TODOs or NotImplementedError stubs",
+            "Trace 01-PATH-2: confirm BearerAuth middleware returns echo.HTTPError(401) before EventsHandler is invoked",
+            "Trace 01-PATH-3: confirm EventsHandler payload validation returns echo.HTTPError(400) before db.InsertEvent is called",
+            "Trace 01-PATH-4: confirm GET /healthz → LivenessHandler returns 200 with no DB calls",
+            "Trace 01-PATH-5 and 01-PATH-6: confirm GET /readyz → ReadinessHandler → db.Ping → 200 or 503",
+            "Trace 01-PATH-7: confirm signal → e.Shutdown(ctx with 30s timeout) → DB close → process exit"
+          ],
+          "test_spec_refs": [
+            "TS-01-SMOKE-1",
+            "TS-01-SMOKE-2",
+            "TS-01-SMOKE-3",
+            "TS-01-SMOKE-4",
+            "TS-01-SMOKE-5",
+            "TS-01-SMOKE-6",
+            "TS-01-SMOKE-7"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.1",
+            "01-REQ-2.1",
+            "01-REQ-3.1",
+            "01-REQ-3.2",
+            "01-REQ-6.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.2",
+          "title": "Verify return value propagation across all layers",
+          "details": [
+            "Confirm EventsHandler checks the error returned by db.InsertEvent and returns 500 on non-nil error",
+            "Confirm ReadinessHandler checks the error returned by db.Ping and returns 503 on non-nil error",
+            "Confirm main() checks error returned by config.Load() and exits non-zero on error",
+            "Confirm main() checks error returned by db.Open() and exits non-zero on error",
+            "Confirm graceful shutdown logs and handles the error returned by e.Shutdown()"
+          ],
+          "test_spec_refs": [
+            "TS-01-E4",
+            "TS-01-E8",
+            "TS-01-9",
+            "TS-01-10"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.E3",
+            "01-REQ-3.E1",
+            "01-REQ-4.2",
+            "01-REQ-4.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.3",
+          "title": "Run all seven smoke tests with real components",
+          "details": [
+            "Run TS-01-SMOKE-1: full end-to-end POST /v1/events → 201 + DB row verified",
+            "Run TS-01-SMOKE-2: missing Authorization → 401, no DB write",
+            "Run TS-01-SMOKE-3: valid token, missing Content-Type → 400, no DB write",
+            "Run TS-01-SMOKE-4: GET /healthz → 200",
+            "Run TS-01-SMOKE-5: GET /readyz with DB available → 200",
+            "Run TS-01-SMOKE-6: GET /readyz with DB unavailable → 503 {\"message\": \"service unavailable\"}",
+            "Run TS-01-SMOKE-7: SIGTERM with in-flight request → clean exit within 30s"
+          ],
+          "test_spec_refs": [
+            "TS-01-SMOKE-1",
+            "TS-01-SMOKE-2",
+            "TS-01-SMOKE-3",
+            "TS-01-SMOKE-4",
+            "TS-01-SMOKE-5",
+            "TS-01-SMOKE-6",
+            "TS-01-SMOKE-7"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.1",
+            "01-REQ-2.E1",
+            "01-REQ-1.E1",
+            "01-REQ-3.1",
+            "01-REQ-3.2",
+            "01-REQ-3.E1",
+            "01-REQ-6.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.4",
+          "title": "Stub and dead-code audit",
+          "details": [
+            "Search codebase for 'TODO', 'FIXME', 'NotImplementedError', 'panic(\"not implemented\")', bare 'return nil' in non-trivial paths, and empty function bodies",
+            "Execute: grep -rn 'TODO\\|FIXME\\|panic(\"not implemented\")' ./cmd ./internal",
+            "Confirm all handler methods contain real logic, not placeholder returns",
+            "Confirm db.InsertEvent, db.Ping, config.Load all contain real implementation, not stubs"
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.5",
+          "title": "Cross-spec entry point and production wiring verification",
+          "details": [
+            "Confirm that cmd/server/main.go (production entrypoint) calls config.Load, logger initialisation, db.Open, route registration, and e.Start in the correct order",
+            "Confirm that all routes (/v1/events, /healthz, /readyz) are registered on the Echo instance used by e.Start",
+            "Confirm that the BearerAuth middleware is applied exclusively to POST /v1/events and not to health check endpoints",
+            "Verify the Go module path github.com/agent-fox/example-service is used in all internal import paths",
+            "Confirm CGO_ENABLED=0 go build ./cmd/server/... produces a working binary"
+          ],
+          "test_spec_refs": [
+            "TS-01-8"
+          ],
+          "requirement_refs": [
+            "01-REQ-4.1",
+            "01-REQ-2.1",
+            "01-REQ-3.1",
+            "01-REQ-3.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "11.V",
+        "checks": [
+          "All seven smoke tests (TS-01-SMOKE-1 through TS-01-SMOKE-7) pass with real components, no mocks in the primary paths",
+          "grep -rn 'TODO\\|FIXME\\|panic(\"not implemented\")' ./cmd ./internal returns zero results",
+          "CGO_ENABLED=0 go build ./cmd/server/... succeeds and produces a runnable binary",
+          "go test ./... -count=1 passes with all tests green after wiring is confirmed",
+          "Each execution path (01-PATH-1 through 01-PATH-7) is traceable in production code without any stub or placeholder functions in the call chain",
+          "All correctness properties (01-PROP-1 through 01-PROP-5) are validated by passing tests against the fully wired service"
+        ]
+      }
+    }
+  ],
+  "traceability": [
+    {
+      "requirement_id": "01-REQ-1.1",
+      "test_spec_id": "TS-01-1",
+      "task_id": "7.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-1.2",
+      "test_spec_id": "TS-01-2",
+      "task_id": "7.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-1.3",
+      "test_spec_id": "TS-01-3",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-2.1",
+      "test_spec_id": "TS-01-4",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-2.2",
+      "test_spec_id": "TS-01-5",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-3.1",
+      "test_spec_id": "TS-01-6",
+      "task_id": "8.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-3.2",
+      "test_spec_id": "TS-01-7",
+      "task_id": "8.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-4.1",
+      "test_spec_id": "TS-01-8",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-4.2",
+      "test_spec_id": "TS-01-9",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-4.3",
+      "test_spec_id": "TS-01-10",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-5.1",
+      "test_spec_id": "TS-01-11",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-5.2",
+      "test_spec_id": "TS-01-12",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-6.1",
+      "test_spec_id": "TS-01-13",
+      "task_id": "9.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-6.2",
+      "test_spec_id": "TS-01-14",
+      "task_id": "9.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-7.1",
+      "test_spec_id": "TS-01-15",
+      "task_id": "1.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-7.2",
+      "test_spec_id": "TS-01-16",
+      "task_id": "1.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-7.3",
+      "test_spec_id": "TS-01-17",
+      "task_id": "1.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-7.4",
+      "test_spec_id": "TS-01-18",
+      "task_id": "1.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-1.E1",
+      "test_spec_id": "TS-01-E1",
+      "task_id": "7.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-1.E1",
+      "test_spec_id": "TS-01-E2",
+      "task_id": "7.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-1.E2",
+      "test_spec_id": "TS-01-E3",
+      "task_id": "7.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-1.E3",
+      "test_spec_id": "TS-01-E4",
+      "task_id": "7.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-2.E1",
+      "test_spec_id": "TS-01-E5",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-2.E2",
+      "test_spec_id": "TS-01-E6",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-2.E3",
+      "test_spec_id": "TS-01-E7",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-3.E1",
+      "test_spec_id": "TS-01-E8",
+      "task_id": "8.2",
+      "test_path": null
+    }
+  ]
+}

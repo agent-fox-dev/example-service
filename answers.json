@@ -1,0 +1,97 @@
+{
+  "questions": [
+    {
+      "id": "q1",
+      "text": "Can you provide a one-sentence Intent statement for this spec? For example: 'To provide a minimal, verifiable HTTP ingestion service that receives and persists audit events from agent-fox instances for integration testing purposes.'",
+      "context": "The Intent section is a required field in the spec format and must be a discrete, clearly articulated statement rather than prose embedded in an Overview.",
+      "options": [
+        "Use the suggested statement above as-is",
+        "Use a modified version of the suggested statement",
+        "Provide a custom intent statement"
+      ],
+      "required": true
+    },
+    {
+      "id": "q2",
+      "text": "Even for an early-phase test service, can you define at least one minimal, verifiable success criterion for the Goals section?",
+      "context": "Without any goals, there is no basis for determining when the service is 'done' or passing. Even a simple functional goal helps downstream artifact generation.",
+      "options": [
+        "The service successfully accepts a POST /events request with a valid bearer token and stores the raw event body in SQLite, returning a 2xx response.",
+        "The service passes a defined end-to-end smoke test: send one event, confirm it is persisted in the database.",
+        "No goals \u2014 this is a throwaway test harness and correctness is judged informally."
+      ],
+      "required": true
+    },
+    {
+      "id": "q3",
+      "text": "Can you provide any additional background on the agent-fox (af) tooling and why this service is needed as a test harness?",
+      "context": "The Background section is explicitly marked as incomplete in the PRD. Even a few sentences about what agent-fox is, why an audit event ingestion service is needed to validate it, and whether any prior approaches were tried would satisfy this requirement.",
+      "options": [],
+      "required": false
+    },
+    {
+      "id": "q4",
+      "text": "What should the confirmed path for the event ingestion endpoint be?",
+      "context": "The PRD currently states 'POST /events (or equivalent path to be confirmed during implementation)', which is ambiguous and could lead to inconsistency between the spec and the implementation.",
+      "options": [
+        "POST /events",
+        "POST /api/events",
+        "POST /v1/events",
+        "To be confirmed \u2014 leave ambiguous"
+      ],
+      "required": true
+    },
+    {
+      "id": "q5",
+      "text": "What HTTP status code and response body should the POST /events endpoint return on success?",
+      "context": "The PRD specifies only 'an appropriate HTTP success response', leaving the exact status code and body shape undefined. This affects client integration and test assertions.",
+      "options": [
+        "201 Created with an empty body",
+        "201 Created with a JSON body containing a generated event ID",
+        "200 OK with an empty body",
+        "202 Accepted with an empty body"
+      ],
+      "required": true
+    },
+    {
+      "id": "q6",
+      "text": "Should the service perform any minimal validation on the incoming payload before storing it, beyond authentication?",
+      "context": "The PRD states the payload structure is unspecified and the handler should store raw JSON as received. It is unclear whether the service should reject requests with a non-JSON Content-Type or an empty body.",
+      "options": [
+        "No validation \u2014 store any body regardless of Content-Type or content",
+        "Require Content-Type: application/json; reject with 400 if missing",
+        "Require Content-Type: application/json and a non-empty body; reject with 400 otherwise",
+        "To be decided during implementation"
+      ],
+      "required": false
+    },
+    {
+      "id": "q7",
+      "text": "What is the minimum SQLite schema for stored events? At minimum, should the service auto-record an ingestion timestamp alongside the raw JSON body?",
+      "context": "The PRD does not define the database schema. Without this, the implementation will make undocumented assumptions about column names, types, and whether metadata (e.g. received_at timestamp) is captured.",
+      "options": [
+        "Single table with columns: id (auto-increment), payload (TEXT/JSON), received_at (DATETIME, auto-set on insert)",
+        "Single table with columns: id (UUID), payload (TEXT/JSON), received_at (DATETIME, auto-set on insert)",
+        "Schema is entirely left to the implementer \u2014 not part of this spec"
+      ],
+      "required": false
+    },
+    {
+      "id": "q8",
+      "text": "Who is the owner of this spec?",
+      "context": "The owner field is empty. An identified owner is important for accountability, review sign-off, and future spec updates.",
+      "options": [],
+      "required": false
+    }
+  ],
+  "answers": {
+    "q1": "Use the suggested statement above as-is",
+    "q2": "The service successfully accepts a POST /events request with a valid bearer token and stores the raw event body in SQLite, returning a 2xx response.",
+    "q3": "Running the same sequence of af and spec commands based on the same prd.md file will allow us to evaluate the performance of af and spec commands.",
+    "q4": "POST /v1/events",
+    "q5": "201 Created with an empty body",
+    "q6": "Require Content-Type: application/json and a non-empty body; reject with 400 otherwise",
+    "q7": "Single table with columns: id (UUID), payload (TEXT/JSON), received_at (DATETIME, auto-set on insert)",
+    "q8": "The agent-fox team"
+  }
+}

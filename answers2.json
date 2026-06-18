@@ -1,0 +1,87 @@
+{
+  "questions": [
+    {
+      "id": "q1",
+      "text": "How should the service extract and validate the bearer token from the Authorization header?",
+      "context": "The PRD states bearer token auth is required but does not specify parsing rules. For example: is the 'Bearer ' prefix mandatory? Is it case-sensitive? What should happen if the Authorization header is present but malformed (e.g. missing prefix, extra whitespace)?",
+      "options": [
+        "Require exactly 'Bearer <token>' with a capital B and single space; reject anything else with 401",
+        "Accept 'Bearer' prefix case-insensitively and trim surrounding whitespace",
+        "Treat the entire Authorization header value as the token (no prefix stripping)"
+      ],
+      "required": true
+    },
+    {
+      "id": "q2",
+      "text": "What HTTP status code should GET /readyz return when the database is unavailable or the readiness check fails?",
+      "context": "The PRD defines the happy path (200 OK) but not the failure path. Kubernetes readiness probes need a non-2xx status to mark the pod as not ready.",
+      "options": [
+        "503 Service Unavailable",
+        "500 Internal Server Error",
+        "200 OK with a JSON body indicating degraded state"
+      ],
+      "required": true
+    },
+    {
+      "id": "q3",
+      "text": "What is the Go module path for this service?",
+      "context": "The project layout references a <module> directory but the module path is needed for go.mod and all internal import paths. This is typically in the form github.com/<org>/<repo>.",
+      "options": [],
+      "required": true
+    },
+    {
+      "id": "q4",
+      "text": "Which SQLite driver should be used?",
+      "context": "The PRD says 'an appropriate Go SQLite driver' without specifying one. The two main options have significant implications: mattn/go-sqlite3 requires CGO (complicates cross-compilation and container builds), while modernc.org/sqlite is pure Go (simpler builds, no CGO). This choice affects the Dockerfile and CI pipeline.",
+      "options": [
+        "modernc.org/sqlite (pure Go, no CGO required)",
+        "mattn/go-sqlite3 (CGO-based, widely used)",
+        "Either \u2014 leave to implementer's discretion"
+      ],
+      "required": true
+    },
+    {
+      "id": "q5",
+      "text": "Should the service handle SIGTERM gracefully (i.e. finish in-flight requests before shutting down)?",
+      "context": "Graceful shutdown is important for Kubernetes deployments to avoid dropped requests during pod termination. If not specified, the implementer may or may not handle this.",
+      "options": [
+        "Yes \u2014 graceful shutdown with a configurable or fixed timeout",
+        "Yes \u2014 graceful shutdown with a fixed timeout (e.g. 10 seconds)",
+        "No \u2014 abrupt shutdown is acceptable for this test harness"
+      ],
+      "required": false
+    },
+    {
+      "id": "q6",
+      "text": "What should the JSON error response body look like for 4xx and 5xx responses?",
+      "context": "The PRD defers to Echo's default error format, but integration tests may need to assert on the response body. Echo's default is {\"message\": \"...\"}. Should the PRD explicitly adopt this format, or define a custom one?",
+      "options": [
+        "Adopt Echo's default: {\"message\": \"<error description>\"}",
+        "Define a custom format, e.g. {\"error\": \"<code>\", \"message\": \"<description>\"}",
+        "No structured body required \u2014 status code alone is sufficient for this test harness"
+      ],
+      "required": false
+    },
+    {
+      "id": "q7",
+      "text": "Are there any testing requirements or expectations for this service (e.g. unit tests, integration tests, minimum coverage)?",
+      "context": "Since this service is explicitly described as a test harness for agent-fox tooling, it would be useful to clarify whether the service itself must have its own tests and at what level.",
+      "options": [
+        "Unit tests for handler logic only",
+        "Integration tests covering the full HTTP-to-SQLite pipeline",
+        "Both unit and integration tests",
+        "No explicit testing requirements for the service itself"
+      ],
+      "required": false
+    }
+  ],
+  "answers": {
+    "q1": "Require exactly 'Bearer <token>' with a capital B and single space; reject anything else with 401",
+    "q2": "503 Service Unavailable",
+    "q3": "github.com/agent-fox/example-service",
+    "q4": "modernc.org/sqlite (pure Go, no CGO required)",
+    "q5": "Yes \u2014 graceful shutdown with a fixed timeout (e.g. 30 seconds)",
+    "q6": "Adopt Echo's default: {\"message\": \"<error description>\"}",
+    "q7": "Integration tests covering the full HTTP-to-SQLite pipeline"
+  }
+}

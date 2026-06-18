@@ -1,0 +1,82 @@
+{
+  "questions": [
+    {
+      "id": "q1",
+      "text": "What UUID version and library should be used to generate the `id` primary key on insert?",
+      "context": "The schema mandates a UUID primary key but does not specify the version or the Go library to use. This affects reproducibility and consistency of generated IDs.",
+      "options": [
+        "UUIDv4 using `github.com/google/uuid`",
+        "UUIDv7 using `github.com/google/uuid`",
+        "UUIDv4 using `github.com/gofrs/uuid`",
+        "No preference \u2014 leave to implementer discretion"
+      ],
+      "required": true
+    },
+    {
+      "id": "q2",
+      "text": "What should the response body be for successful health check responses (`200 OK`) on `/healthz` and `/readyz`?",
+      "context": "The PRD specifies the failure body for `/readyz` (`{\"message\": \"service unavailable\"}`) but leaves the success response body undefined. Kubernetes probes only check the status code, but consistency with the error format matters for observability.",
+      "options": [
+        "Empty body (no Content-Type header set)",
+        "Plain text `ok` with Content-Type: text/plain",
+        "JSON `{\"status\": \"ok\"}` with Content-Type: application/json",
+        "Leave to implementer discretion"
+      ],
+      "required": true
+    },
+    {
+      "id": "q3",
+      "text": "Should a Dockerfile (or Containerfile) be included in the repository, and if so, what base image and build strategy should be used?",
+      "context": "The PRD mentions Kubernetes and Podman deployment but provides no container build specification. Since CGO is disabled and a pure-Go SQLite driver is used, a distroless or scratch image is feasible.",
+      "options": [
+        "Yes \u2014 multi-stage build with `golang` builder and `gcr.io/distroless/static` runtime",
+        "Yes \u2014 multi-stage build with `golang` builder and `scratch` runtime",
+        "Yes \u2014 single-stage `golang` image",
+        "No Dockerfile required \u2014 deployment details are out of scope for this PRD"
+      ],
+      "required": true
+    },
+    {
+      "id": "q4",
+      "text": "What datetime format should be used when storing `received_at` in SQLite?",
+      "context": "SQLite has no native DATETIME type; the format stored as TEXT affects query compatibility and interoperability. RFC3339/ISO8601 is the most portable choice.",
+      "options": [
+        "RFC3339 string (e.g. `2024-01-15T10:30:00Z`)",
+        "Unix epoch integer (seconds)",
+        "SQLite-compatible datetime string (e.g. `2024-01-15 10:30:00`)",
+        "Leave to implementer discretion"
+      ],
+      "required": false
+    },
+    {
+      "id": "q5",
+      "text": "Should the service auto-create the SQLite database file and its parent directory if they do not exist at startup?",
+      "context": "This behavior is common for embedded databases but should be explicit. If the directory does not exist and the service does not create it, the service will fail to start without a clear error unless this is handled intentionally.",
+      "options": [
+        "Yes \u2014 auto-create the directory and file if absent",
+        "No \u2014 the directory must pre-exist; log a clear error and exit if it does not",
+        "Leave to implementer discretion"
+      ],
+      "required": true
+    },
+    {
+      "id": "q6",
+      "text": "Should CORS and rate limiting be explicitly called out as out of scope, or should any minimal policy be applied?",
+      "context": "The PRD does not mention CORS or rate limiting. For a test harness this is likely intentional, but explicitly noting it prevents implementers from adding unnecessary middleware or, conversely, missing a security expectation.",
+      "options": [
+        "Explicitly out of scope \u2014 add to Non-Goals",
+        "Apply a minimal CORS policy allowing all origins (test harness use case)",
+        "No change needed \u2014 silence implies out of scope"
+      ],
+      "required": false
+    }
+  ],
+  "answers": {
+    "q1": "UUIDv7 using `github.com/google/uuid",
+    "q2": "Plain text `ok` with Content-Type: text/plain",
+    "q3": "No Dockerfile required \u2014 deployment details are out of scope for this PRD",
+    "q4": "Unix epoch integer (seconds)",
+    "q5": "Yes \u2014 auto-create the directory and file if absent",
+    "q6": ""
+  }
+}

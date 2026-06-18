@@ -1,0 +1,30 @@
+{
+  "questions": [
+    {
+      "id": "q1",
+      "text": "Should the logging format be structured (e.g. JSON) or plain text, and should the log level be configurable via an environment variable?",
+      "context": "The PRD includes Echo logging middleware but does not specify output format or whether verbosity is runtime-configurable. For Kubernetes deployments, structured JSON logging is typically preferred for log aggregation pipelines.",
+      "options": [
+        "Structured JSON logging, log level configurable via LOG_LEVEL env var",
+        "Plain text logging, fixed level",
+        "Leave to implementer discretion"
+      ],
+      "required": false
+    },
+    {
+      "id": "q2",
+      "text": "How should the readiness probe verify that the database is available \u2014 for example, by executing a lightweight query such as SELECT 1, or by checking that the database file exists and is writable?",
+      "context": "The PRD specifies that GET /readyz returns 503 when the database is unavailable, but does not define the check mechanism. Different approaches have different false-positive/negative characteristics.",
+      "options": [
+        "Execute a lightweight SQL ping (e.g. SELECT 1)",
+        "Check that the database file exists and is writable",
+        "Leave to implementer discretion"
+      ],
+      "required": false
+    }
+  ],
+  "answers": {
+    "q1": "Structured JSON logging, log level configurable via LOG_LEVEL env var",
+    "q2": "Execute a lightweight SQL ping (e.g. SELECT 1)"
+  }
+}

@@ -1,0 +1,791 @@
+{
+  "$schema": null,
+  "spec_id": "01",
+  "spec_name": "basic_svc",
+  "schema_version": 1,
+  "test_cases": [
+    {
+      "id": "TS-01-1",
+      "requirement_id": "01-REQ-1.1",
+      "kind": "acceptance",
+      "description": "Verifies that a POST /v1/events request with a valid bearer token, Content-Type: application/json, and a non-empty body returns 201 Created with an empty response body and no Content-Type header, and stores the event in SQLite.",
+      "preconditions": [
+        "Service is running with AUTH_BEARER_TOKEN=test-secret",
+        "SQLite database is initialised with the events table",
+        "No pre-existing rows in the events table"
+      ],
+      "input": {
+        "body": "{\"type\":\"audit\",\"action\":\"login\"}",
+        "headers": {
+          "Authorization": "Bearer test-secret",
+          "Content-Type": "application/json"
+        },
+        "method": "POST",
+        "path": "/v1/events"
+      },
+      "expected": {
+        "body": "",
+        "db_row_count": 1,
+        "headers": {
+          "Content-Type": "absent"
+        },
+        "status": 201
+      },
+      "assertion_pseudocode": "resp = POST('/v1/events', headers={'Authorization':'Bearer test-secret','Content-Type':'application/json'}, body='{\"type\":\"audit\",\"action\":\"login\"}')\nassert resp.status_code == 201\nassert resp.body == '' or resp.body is None\nassert 'Content-Type' not in resp.headers\nrow = db.query_one('SELECT payload FROM events')\nassert row.payload == '{\"type\":\"audit\",\"action\":\"login\"}'"
+    },
+    {
+      "id": "TS-01-2",
+      "requirement_id": "01-REQ-1.2",
+      "kind": "acceptance",
+      "description": "Verifies that the service stores the raw JSON body exactly as received without performing any schema validation, accepting arbitrary JSON structures.",
+      "preconditions": [
+        "Service is running with AUTH_BEARER_TOKEN=test-secret",
+        "SQLite database is initialised with the events table"
+      ],
+      "input": {
+        "body": "{\"unexpected_field\":true,\"nested\":{\"a\":1},\"arr\":[1,2,3]}",
+        "headers": {
+          "Authorization": "Bearer test-secret",
+          "Content-Type": "application/json"
+        },
+        "method": "POST",
+        "path": "/v1/events"
+      },
+      "expected": {
+        "db_payload": "{\"unexpected_field\":true,\"nested\":{\"a\":1},\"arr\":[1,2,3]}",
+        "status": 201
+      },
+      "assertion_pseudocode": "body = '{\"unexpected_field\":true,\"nested\":{\"a\":1},\"arr\":[1,2,3]}'\nresp = POST('/v1/events', headers={'Authorization':'Bearer test-secret','Content-Type':'application/json'}, body=body)\nassert resp.status_code == 201\nrow = db.query_one('SELECT payload FROM events ORDER BY received_at DESC LIMIT 1')\nassert row.payload == body"
+    },
+    {
+      "id": "TS-01-3",
+      "requirement_id": "01-REQ-1.3",
+      "kind": "acceptance",
+      "description": "Verifies that a UUID is generated for the id column and received_at is set to the current UTC time on every insert into the events table.",
+      "preconditions": [
+        "Service is running with AUTH_BEARER_TOKEN=test-secret",
+        "SQLite database is initialised with the events table",
+        "System clock is accessible and UTC time is known before the request"
+      ],
+      "input": {
+        "body": "{\"event\":\"test\"}",
+        "headers": {
+          "Authorization": "Bearer test-secret",
+          "Content-Type": "application/json"
+        },
+        "method": "POST",
+        "path": "/v1/events"
+      },
+      "expected": {
+        "db_id_format": "UUID v4",
+        "db_received_at": "current UTC time (within a few seconds of request)",
+        "status": 201
+      },
+      "assertion_pseudocode": "before = utc_now()\nresp = POST('/v1/events', headers={'Authorization':'Bearer test-secret','Content-Type':'application/json'}, body='{\"event\":\"test\"}')\nafter = utc_now()\nassert resp.status_code == 201\nrow = db.query_one('SELECT id, received_at FROM events ORDER BY received_at DESC LIMIT 1')\nassert is_valid_uuid(row.id)\nassert before <= parse_datetime(row.received_at) <= after"
+    },
+    {
+      "id": "TS-01-4",
+      "requirement_id": "01-REQ-2.1",
+      "kind": "acceptance",
+      "description": "Verifies that the service extracts the bearer token using exactly the 'Bearer <token>' format (capital B, single space) and compares it against AUTH_BEARER_TOKEN.",
+      "preconditions": [
+        "Service is running with AUTH_BEARER_TOKEN=my-secret-token"
+      ],
+      "input": {
+        "body": "{\"e\":1}",
+        "headers": {
+          "Authorization": "Bearer my-secret-token",
+          "Content-Type": "application/json"
+        },
+        "method": "POST",
+        "path": "/v1/events"
+      },
+      "expected": {
+        "status": 201
+      },
+      "assertion_pseudocode": "resp = POST('/v1/events', headers={'Authorization':'Bearer my-secret-token','Content-Type':'application/json'}, body='{\"e\":1}')\nassert resp.status_code == 201  # token extracted and matched correctly"
+    },
+    {
+      "id": "TS-01-5",
+      "requirement_id": "01-REQ-2.2",
+      "kind": "acceptance",
+      "description": "Verifies that when the extracted token matches AUTH_BEARER_TOKEN, the request proceeds to payload validation and storage.",
+      "preconditions": [
+        "Service is running with AUTH_BEARER_TOKEN=valid-token",
+        "SQLite database is initialised with the events table"
+      ],
+      "input": {
+        "body": "{\"key\":\"value\"}",
+        "headers": {
+          "Authorization": "Bearer valid-token",
+          "Content-Type": "application/json"
+        },
+        "method": "POST",
+        "path": "/v1/events"
+      },
+      "expected": {
+        "db_row_count": 1,
+        "status": 201
+      },
+      "assertion_pseudocode": "resp = POST('/v1/events', headers={'Authorization':'Bearer valid-token','Content-Type':'application/json'}, body='{\"key\":\"value\"}')\nassert resp.status_code == 201\ncount = db.query_scalar('SELECT COUNT(*) FROM events')\nassert count == 1"
+    },
+    {
+      "id": "TS-01-6",
+      "requirement_id": "01-REQ-3.1",
+      "kind": "acceptance",
+      "description": "Verifies that GET /healthz returns 200 OK when the service process is running.",
+      "preconditions": [
+        "Service is running with AUTH_BEARER_TOKEN=test-secret"
+      ],
+      "input": {
+        "method": "GET",
+        "path": "/healthz"
+      },
+      "expected": {
+        "status": 200
+      },
+      "assertion_pseudocode": "resp = GET('/healthz')\nassert resp.status_code == 200"
+    },
+    {
+      "id": "TS-01-7",
+      "requirement_id": "01-REQ-3.2",
+      "kind": "acceptance",
+      "description": "Verifies that GET /readyz returns 200 OK when the SELECT 1 query against the database succeeds.",
+      "preconditions": [
+        "Service is running with AUTH_BEARER_TOKEN=test-secret",
+        "SQLite database is available and connected"
+      ],
+      "input": {
+        "method": "GET",
+        "path": "/readyz"
+      },
+      "expected": {
+        "status": 200
+      },
+      "assertion_pseudocode": "resp = GET('/readyz')\nassert resp.status_code == 200"
+    },
+    {
+      "id": "TS-01-8",
+      "requirement_id": "01-REQ-4.1",
+      "kind": "acceptance",
+      "description": "Verifies that PORT, DB_PATH, AUTH_BEARER_TOKEN, and LOG_LEVEL are read from environment variables at startup, with correct defaults applied when optional variables are absent.",
+      "preconditions": [
+        "Service started with only AUTH_BEARER_TOKEN set; PORT, DB_PATH, and LOG_LEVEL unset"
+      ],
+      "input": {
+        "env": {
+          "AUTH_BEARER_TOKEN": "env-test-token"
+        }
+      },
+      "expected": {
+        "db_path": "./data/events.db",
+        "listen_port": 8080,
+        "log_level": "info"
+      },
+      "assertion_pseudocode": "start_service(env={'AUTH_BEARER_TOKEN':'env-test-token'})\nresp = GET('http://localhost:8080/healthz')\nassert resp.status_code == 200  # default port used\nassert service_config.db_path == './data/events.db'  # default DB_PATH\nassert service_config.log_level == 'info'  # default LOG_LEVEL"
+    },
+    {
+      "id": "TS-01-9",
+      "requirement_id": "01-REQ-4.2",
+      "kind": "acceptance",
+      "description": "Verifies that the service fails to start and emits a descriptive error message when AUTH_BEARER_TOKEN is absent from the environment.",
+      "preconditions": [
+        "AUTH_BEARER_TOKEN is not set in the environment"
+      ],
+      "input": {
+        "env": {}
+      },
+      "expected": {
+        "exit_code": "non-zero",
+        "stderr_or_log": "descriptive error message referencing AUTH_BEARER_TOKEN"
+      },
+      "assertion_pseudocode": "result = start_service(env={})\nassert result.exit_code != 0\nassert 'AUTH_BEARER_TOKEN' in result.stderr or 'AUTH_BEARER_TOKEN' in result.stdout\nassert no_port_binding_occurred()"
+    },
+    {
+      "id": "TS-01-10",
+      "requirement_id": "01-REQ-4.3",
+      "kind": "acceptance",
+      "description": "Verifies that the service fails to start with a descriptive error message when LOG_LEVEL is set to an invalid value.",
+      "preconditions": [
+        "AUTH_BEARER_TOKEN is set",
+        "LOG_LEVEL is set to an invalid value"
+      ],
+      "input": {
+        "env": {
+          "AUTH_BEARER_TOKEN": "test-secret",
+          "LOG_LEVEL": "verbose"
+        }
+      },
+      "expected": {
+        "exit_code": "non-zero",
+        "stderr_or_log": "descriptive error message referencing LOG_LEVEL"
+      },
+      "assertion_pseudocode": "result = start_service(env={'AUTH_BEARER_TOKEN':'test-secret','LOG_LEVEL':'verbose'})\nassert result.exit_code != 0\nassert 'LOG_LEVEL' in result.stderr or 'invalid' in result.stderr.lower()"
+    },
+    {
+      "id": "TS-01-11",
+      "requirement_id": "01-REQ-5.1",
+      "kind": "acceptance",
+      "description": "Verifies that all log entries emitted by the service are formatted as valid JSON objects.",
+      "preconditions": [
+        "Service is running with AUTH_BEARER_TOKEN=test-secret",
+        "Log output is captured to a buffer or file"
+      ],
+      "input": {
+        "method": "GET",
+        "path": "/healthz"
+      },
+      "expected": {
+        "log_format": "each log line is a valid JSON object"
+      },
+      "assertion_pseudocode": "with capture_log_output() as logs:\n    GET('/healthz')\nfor line in logs.lines:\n    assert is_valid_json(line)\n    assert isinstance(parse_json(line), dict)"
+    },
+    {
+      "id": "TS-01-12",
+      "requirement_id": "01-REQ-5.2",
+      "kind": "acceptance",
+      "description": "Verifies that the service honours the LOG_LEVEL environment variable to filter log output at runtime, suppressing messages below the configured level.",
+      "preconditions": [
+        "Service is running with AUTH_BEARER_TOKEN=test-secret and LOG_LEVEL=warn",
+        "Log output is captured"
+      ],
+      "input": {
+        "env": {
+          "LOG_LEVEL": "warn"
+        }
+      },
+      "expected": {
+        "log_output": "no debug or info level log entries appear in output"
+      },
+      "assertion_pseudocode": "with capture_log_output() as logs:\n    GET('/healthz')\nfor line in logs.lines:\n    entry = parse_json(line)\n    assert entry.get('level') not in ['debug', 'info']"
+    },
+    {
+      "id": "TS-01-13",
+      "requirement_id": "01-REQ-6.1",
+      "kind": "acceptance",
+      "description": "Verifies that on receiving SIGTERM or SIGINT, the service stops accepting new connections and allows in-flight requests to complete before exiting within the 30-second timeout.",
+      "preconditions": [
+        "Service is running with AUTH_BEARER_TOKEN=test-secret",
+        "An in-flight POST /v1/events request is active when the signal is sent"
+      ],
+      "input": {
+        "signal": "SIGTERM"
+      },
+      "expected": {
+        "in_flight_request": "completes successfully with 201",
+        "new_connections": "refused after signal",
+        "process_exit": "clean exit after in-flight request completes"
+      },
+      "assertion_pseudocode": "start_slow_request_in_background(delay_ms=500)\nsend_signal(process, SIGTERM)\nnew_conn_result = try_new_connection('/healthz')\nassert new_conn_result.refused or new_conn_result.error\nslow_resp = await_background_request()\nassert slow_resp.status_code == 201\nassert process_exited_cleanly()"
+    },
+    {
+      "id": "TS-01-14",
+      "requirement_id": "01-REQ-6.2",
+      "kind": "acceptance",
+      "description": "Verifies that the service force-exits after 30 seconds if in-flight requests have not completed during graceful shutdown.",
+      "preconditions": [
+        "Service is running with AUTH_BEARER_TOKEN=test-secret",
+        "An artificially slow in-flight request is active (takes > 30 seconds)"
+      ],
+      "input": {
+        "in_flight_request_duration_seconds": 60,
+        "signal": "SIGTERM"
+      },
+      "expected": {
+        "process_exit": "within ~30 seconds of signal, regardless of pending request"
+      },
+      "assertion_pseudocode": "start_blocking_request_in_background(duration_s=60)\nt0 = now()\nsend_signal(process, SIGTERM)\nwait_for_process_exit(process, timeout_s=35)\nt1 = now()\nassert (t1 - t0) <= 32  # exited within ~30 seconds with small tolerance"
+    },
+    {
+      "id": "TS-01-15",
+      "requirement_id": "01-REQ-7.1",
+      "kind": "acceptance",
+      "description": "Verifies that the integration test suite includes a test for successful event ingestion that asserts 201 Created and verifies the event is persisted in SQLite.",
+      "preconditions": [
+        "Integration test suite is present in the repository",
+        "Service can be started with a test SQLite database"
+      ],
+      "input": {
+        "test_suite": "integration tests"
+      },
+      "expected": {
+        "assertions": [
+          "HTTP 201 verified",
+          "event row present in events table"
+        ],
+        "test_exists": true
+      },
+      "assertion_pseudocode": "result = run_test_suite(filter='ingestion')\nassert result.passed\nassert '201' in result.assertions_verified\nassert 'events table row' in result.assertions_verified"
+    },
+    {
+      "id": "TS-01-16",
+      "requirement_id": "01-REQ-7.2",
+      "kind": "acceptance",
+      "description": "Verifies that the integration test suite includes tests for missing and invalid bearer tokens that assert 401 Unauthorized responses.",
+      "preconditions": [
+        "Integration test suite is present in the repository"
+      ],
+      "input": {
+        "test_suite": "integration tests"
+      },
+      "expected": {
+        "assertions": [
+          "HTTP 401 verified for missing token",
+          "HTTP 401 verified for invalid token"
+        ],
+        "test_exists": true
+      },
+      "assertion_pseudocode": "result = run_test_suite(filter='auth')\nassert result.passed\nassert result.covers_scenario('missing_token')\nassert result.covers_scenario('invalid_token')\nassert result.http_status_verified(401)"
+    },
+    {
+      "id": "TS-01-17",
+      "requirement_id": "01-REQ-7.3",
+      "kind": "acceptance",
+      "description": "Verifies that the integration test suite includes tests for missing Content-Type and empty body that assert 400 Bad Request responses.",
+      "preconditions": [
+        "Integration test suite is present in the repository"
+      ],
+      "input": {
+        "test_suite": "integration tests"
+      },
+      "expected": {
+        "assertions": [
+          "HTTP 400 verified for missing Content-Type",
+          "HTTP 400 verified for empty body"
+        ],
+        "test_exists": true
+      },
+      "assertion_pseudocode": "result = run_test_suite(filter='payload_validation')\nassert result.passed\nassert result.covers_scenario('missing_content_type')\nassert result.covers_scenario('empty_body')\nassert result.http_status_verified(400)"
+    },
+    {
+      "id": "TS-01-18",
+      "requirement_id": "01-REQ-7.4",
+      "kind": "acceptance",
+      "description": "Verifies that the integration test suite includes tests for GET /healthz and GET /readyz under normal conditions that assert 200 OK responses.",
+      "preconditions": [
+        "Integration test suite is present in the repository",
+        "Database is available during test run"
+      ],
+      "input": {
+        "test_suite": "integration tests"
+      },
+      "expected": {
+        "assertions": [
+          "HTTP 200 for /healthz",
+          "HTTP 200 for /readyz"
+        ],
+        "test_exists": true
+      },
+      "assertion_pseudocode": "result = run_test_suite(filter='health_checks')\nassert result.passed\nassert result.covers_endpoint('GET /healthz')\nassert result.covers_endpoint('GET /readyz')\nassert result.http_status_verified(200)"
+    }
+  ],
+  "property_tests": [
+    {
+      "id": "TS-01-P1",
+      "property_id": "01-PROP-1",
+      "validates": [
+        "01-REQ-1.1",
+        "01-REQ-1.2",
+        "01-REQ-1.3"
+      ],
+      "description": "For any POST /v1/events request that passes authentication and payload validation, exactly one row is inserted with the raw payload stored and received_at set to UTC time.",
+      "for_any_strategy": "Generate arbitrary non-empty JSON strings as the body; use a valid bearer token and Content-Type: application/json for every request",
+      "invariant_check": "after each successful POST (201 response), query events table; assert exactly one new row was inserted; assert row.payload equals the exact body sent; assert row.id is a valid UUID; assert row.received_at is within a few seconds of the request time in UTC"
+    },
+    {
+      "id": "TS-01-P2",
+      "property_id": "01-PROP-2",
+      "validates": [
+        "01-REQ-2.E1",
+        "01-REQ-2.E2",
+        "01-REQ-2.E3"
+      ],
+      "description": "For any POST /v1/events request with a missing, malformed, or incorrect Authorization header, no row is inserted and the response is always 401 Unauthorized.",
+      "for_any_strategy": "Generate variants of Authorization header values: absent, wrong prefix casing, extra whitespace, completely wrong token, empty string, and non-Bearer schemes",
+      "invariant_check": "for each generated invalid auth header, assert response status is 401; assert events table row count did not increase from pre-request count"
+    },
+    {
+      "id": "TS-01-P3",
+      "property_id": "01-PROP-3",
+      "validates": [
+        "01-REQ-1.E1",
+        "01-REQ-1.E2"
+      ],
+      "description": "For any POST /v1/events request with a valid bearer token but invalid payload (missing Content-Type or empty body), no row is inserted and the response is 400 Bad Request.",
+      "for_any_strategy": "Generate requests with valid bearer token but: (a) absent Content-Type header, (b) non-JSON Content-Type values, (c) empty body string, (d) combinations of both invalid Content-Type and empty body",
+      "invariant_check": "for each generated invalid payload request, assert response status is 400; assert events table row count did not increase from pre-request count"
+    },
+    {
+      "id": "TS-01-P4",
+      "property_id": "01-PROP-4",
+      "validates": [
+        "01-REQ-3.2",
+        "01-REQ-3.E1"
+      ],
+      "description": "For any GET /readyz request, the response is 200 OK if and only if the SELECT 1 query succeeds; otherwise 503 Service Unavailable.",
+      "for_any_strategy": "Alternate between states: (a) database available and responding normally, (b) database unavailable (connection closed or file removed); send GET /readyz in each state",
+      "invariant_check": "when SELECT 1 succeeds: assert response status == 200; when SELECT 1 fails: assert response status == 503 and body matches {\"message\": \"service unavailable\"}"
+    },
+    {
+      "id": "TS-01-P5",
+      "property_id": "01-PROP-5",
+      "validates": [
+        "01-REQ-4.2"
+      ],
+      "description": "For any service startup attempt without AUTH_BEARER_TOKEN set, the process exits with a non-zero status and emits a descriptive error before binding to any port.",
+      "for_any_strategy": "Attempt to start the service with AUTH_BEARER_TOKEN unset; vary other env variables (PORT, DB_PATH, LOG_LEVEL) across valid values",
+      "invariant_check": "assert process exit code != 0; assert no socket is bound on the configured port; assert stderr or structured log output contains a descriptive message referencing the missing AUTH_BEARER_TOKEN"
+    }
+  ],
+  "edge_case_tests": [
+    {
+      "id": "TS-01-E1",
+      "requirement_id": "01-REQ-1.E1",
+      "kind": "edge_case",
+      "description": "Verifies that POST /v1/events with a missing Content-Type header returns 400 Bad Request with an Echo Framework error body and does not write to the events table.",
+      "preconditions": [
+        "Service is running with AUTH_BEARER_TOKEN=test-secret",
+        "SQLite events table is empty"
+      ],
+      "input": {
+        "body": "{\"event\":\"test\"}",
+        "headers": {
+          "Authorization": "Bearer test-secret"
+        },
+        "method": "POST",
+        "path": "/v1/events"
+      },
+      "expected": {
+        "body": {
+          "message": "<error description>"
+        },
+        "db_row_count": 0,
+        "response_content_type": "application/json",
+        "status": 400
+      },
+      "assertion_pseudocode": "resp = POST('/v1/events', headers={'Authorization':'Bearer test-secret'}, body='{\"event\":\"test\"}')\nassert resp.status_code == 400\nassert resp.headers['Content-Type'] == 'application/json'\nbody = parse_json(resp.body)\nassert 'message' in body\nassert db.query_scalar('SELECT COUNT(*) FROM events') == 0"
+    },
+    {
+      "id": "TS-01-E2",
+      "requirement_id": "01-REQ-1.E1",
+      "kind": "edge_case",
+      "description": "Verifies that POST /v1/events with Content-Type set to a non-JSON value returns 400 Bad Request and does not write to the events table.",
+      "preconditions": [
+        "Service is running with AUTH_BEARER_TOKEN=test-secret",
+        "SQLite events table is empty"
+      ],
+      "input": {
+        "body": "{\"event\":\"test\"}",
+        "headers": {
+          "Authorization": "Bearer test-secret",
+          "Content-Type": "text/plain"
+        },
+        "method": "POST",
+        "path": "/v1/events"
+      },
+      "expected": {
+        "body": {
+          "message": "<error description>"
+        },
+        "db_row_count": 0,
+        "response_content_type": "application/json",
+        "status": 400
+      },
+      "assertion_pseudocode": "resp = POST('/v1/events', headers={'Authorization':'Bearer test-secret','Content-Type':'text/plain'}, body='{\"event\":\"test\"}')\nassert resp.status_code == 400\nassert 'application/json' in resp.headers['Content-Type']\nassert 'message' in parse_json(resp.body)\nassert db.query_scalar('SELECT COUNT(*) FROM events') == 0"
+    },
+    {
+      "id": "TS-01-E3",
+      "requirement_id": "01-REQ-1.E2",
+      "kind": "edge_case",
+      "description": "Verifies that POST /v1/events with an empty request body returns 400 Bad Request and does not write to the events table.",
+      "preconditions": [
+        "Service is running with AUTH_BEARER_TOKEN=test-secret",
+        "SQLite events table is empty"
+      ],
+      "input": {
+        "body": "",
+        "headers": {
+          "Authorization": "Bearer test-secret",
+          "Content-Type": "application/json"
+        },
+        "method": "POST",
+        "path": "/v1/events"
+      },
+      "expected": {
+        "body": {
+          "message": "<error description>"
+        },
+        "db_row_count": 0,
+        "response_content_type": "application/json",
+        "status": 400
+      },
+      "assertion_pseudocode": "resp = POST('/v1/events', headers={'Authorization':'Bearer test-secret','Content-Type':'application/json'}, body='')\nassert resp.status_code == 400\nassert 'application/json' in resp.headers['Content-Type']\nassert 'message' in parse_json(resp.body)\nassert db.query_scalar('SELECT COUNT(*) FROM events') == 0"
+    },
+    {
+      "id": "TS-01-E4",
+      "requirement_id": "01-REQ-1.E3",
+      "kind": "edge_case",
+      "description": "Verifies that when a database error occurs during event storage, the service returns 500 Internal Server Error with an Echo Framework error body.",
+      "preconditions": [
+        "Service is running with AUTH_BEARER_TOKEN=test-secret",
+        "Database is configured to fail on insert (e.g. read-only file, closed connection, or injected fault)"
+      ],
+      "input": {
+        "body": "{\"event\":\"test\"}",
+        "headers": {
+          "Authorization": "Bearer test-secret",
+          "Content-Type": "application/json"
+        },
+        "method": "POST",
+        "path": "/v1/events"
+      },
+      "expected": {
+        "body": {
+          "message": "<error description>"
+        },
+        "response_content_type": "application/json",
+        "status": 500
+      },
+      "assertion_pseudocode": "simulate_db_failure()  # e.g. chmod 000 on db file or close db handle\nresp = POST('/v1/events', headers={'Authorization':'Bearer test-secret','Content-Type':'application/json'}, body='{\"event\":\"test\"}')\nassert resp.status_code == 500\nassert 'application/json' in resp.headers['Content-Type']\nassert 'message' in parse_json(resp.body)"
+    },
+    {
+      "id": "TS-01-E5",
+      "requirement_id": "01-REQ-2.E1",
+      "kind": "edge_case",
+      "description": "Verifies that POST /v1/events with a missing Authorization header returns 401 Unauthorized and does not write to the events table.",
+      "preconditions": [
+        "Service is running with AUTH_BEARER_TOKEN=test-secret",
+        "SQLite events table is empty"
+      ],
+      "input": {
+        "body": "{\"event\":\"test\"}",
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "method": "POST",
+        "path": "/v1/events"
+      },
+      "expected": {
+        "body": {
+          "message": "<error description>"
+        },
+        "db_row_count": 0,
+        "response_content_type": "application/json",
+        "status": 401
+      },
+      "assertion_pseudocode": "resp = POST('/v1/events', headers={'Content-Type':'application/json'}, body='{\"event\":\"test\"}')\nassert resp.status_code == 401\nassert 'application/json' in resp.headers['Content-Type']\nassert 'message' in parse_json(resp.body)\nassert db.query_scalar('SELECT COUNT(*) FROM events') == 0"
+    },
+    {
+      "id": "TS-01-E6",
+      "requirement_id": "01-REQ-2.E2",
+      "kind": "edge_case",
+      "description": "Verifies that a malformed Authorization header (wrong casing 'bearer', extra whitespace, or missing 'Bearer ' prefix) returns 401 Unauthorized and does not write to the events table.",
+      "preconditions": [
+        "Service is running with AUTH_BEARER_TOKEN=test-secret",
+        "SQLite events table is empty"
+      ],
+      "input": [
+        {
+          "Authorization": "bearer test-secret"
+        },
+        {
+          "Authorization": "Bearer  test-secret"
+        },
+        {
+          "Authorization": "test-secret"
+        },
+        {
+          "Authorization": "BEARER test-secret"
+        }
+      ],
+      "expected": {
+        "body": {
+          "message": "<error description>"
+        },
+        "db_row_count": 0,
+        "response_content_type": "application/json",
+        "status": 401
+      },
+      "assertion_pseudocode": "malformed_headers = [\n  'bearer test-secret',\n  'Bearer  test-secret',\n  'test-secret',\n  'BEARER test-secret'\n]\nfor auth_value in malformed_headers:\n  resp = POST('/v1/events', headers={'Authorization': auth_value, 'Content-Type':'application/json'}, body='{\"e\":1}')\n  assert resp.status_code == 401\n  assert 'message' in parse_json(resp.body)\nassert db.query_scalar('SELECT COUNT(*) FROM events') == 0"
+    },
+    {
+      "id": "TS-01-E7",
+      "requirement_id": "01-REQ-2.E3",
+      "kind": "edge_case",
+      "description": "Verifies that a well-formed Authorization header with an incorrect token value returns 401 Unauthorized and does not write to the events table.",
+      "preconditions": [
+        "Service is running with AUTH_BEARER_TOKEN=correct-secret",
+        "SQLite events table is empty"
+      ],
+      "input": {
+        "body": "{\"event\":\"test\"}",
+        "headers": {
+          "Authorization": "Bearer wrong-token",
+          "Content-Type": "application/json"
+        },
+        "method": "POST",
+        "path": "/v1/events"
+      },
+      "expected": {
+        "body": {
+          "message": "<error description>"
+        },
+        "db_row_count": 0,
+        "response_content_type": "application/json",
+        "status": 401
+      },
+      "assertion_pseudocode": "resp = POST('/v1/events', headers={'Authorization':'Bearer wrong-token','Content-Type':'application/json'}, body='{\"event\":\"test\"}')\nassert resp.status_code == 401\nassert 'application/json' in resp.headers['Content-Type']\nassert 'message' in parse_json(resp.body)\nassert db.query_scalar('SELECT COUNT(*) FROM events') == 0"
+    },
+    {
+      "id": "TS-01-E8",
+      "requirement_id": "01-REQ-3.E1",
+      "kind": "edge_case",
+      "description": "Verifies that GET /readyz returns 503 Service Unavailable with body {\"message\": \"service unavailable\"} when the database connection is unavailable or the SELECT 1 query fails.",
+      "preconditions": [
+        "Service is running with AUTH_BEARER_TOKEN=test-secret",
+        "Database connection is forced into an unavailable state (e.g. file removed or connection closed)"
+      ],
+      "input": {
+        "method": "GET",
+        "path": "/readyz"
+      },
+      "expected": {
+        "body": {
+          "message": "service unavailable"
+        },
+        "response_content_type": "application/json",
+        "status": 503
+      },
+      "assertion_pseudocode": "simulate_db_unavailable()  # remove db file or close connection\nresp = GET('/readyz')\nassert resp.status_code == 503\nassert 'application/json' in resp.headers['Content-Type']\nbody = parse_json(resp.body)\nassert body['message'] == 'service unavailable'"
+    }
+  ],
+  "smoke_tests": [
+    {
+      "id": "TS-01-SMOKE-1",
+      "execution_path_id": "01-PATH-1",
+      "description": "Full end-to-end smoke test of successful audit event ingestion: a valid POST /v1/events request flows through auth, validation, SQLite persistence, and returns 201 Created.",
+      "trigger": "Send POST /v1/events with Authorization: Bearer test-secret, Content-Type: application/json, and body {\"type\":\"smoke\",\"source\":\"test\"}",
+      "real_components": [
+        "Echo HTTP server",
+        "Bearer token authentication middleware",
+        "Payload validation handler",
+        "SQLite database (events table)"
+      ],
+      "mockable": [],
+      "expected_effects": [
+        "HTTP 201 Created response with empty body",
+        "No Content-Type header on the response",
+        "One new row in the events table with payload={\"type\":\"smoke\",\"source\":\"test\"}, a valid UUID id, and received_at set to current UTC time"
+      ]
+    },
+    {
+      "id": "TS-01-SMOKE-2",
+      "execution_path_id": "01-PATH-2",
+      "description": "Smoke test for rejection of a POST /v1/events request with a missing Authorization header, verifying the auth middleware returns 401 and nothing is written to the database.",
+      "trigger": "Send POST /v1/events with Content-Type: application/json and body {\"type\":\"smoke\"} but no Authorization header",
+      "real_components": [
+        "Echo HTTP server",
+        "Bearer token authentication middleware"
+      ],
+      "mockable": [
+        "SQLite database (to verify no writes occur)"
+      ],
+      "expected_effects": [
+        "HTTP 401 Unauthorized response",
+        "Response body is {\"message\": \"<error description>\"} with Content-Type: application/json",
+        "No rows inserted into the events table"
+      ]
+    },
+    {
+      "id": "TS-01-SMOKE-3",
+      "execution_path_id": "01-PATH-3",
+      "description": "Smoke test for rejection of a POST /v1/events request with a valid token but missing Content-Type header, verifying 400 Bad Request is returned and nothing is written to the database.",
+      "trigger": "Send POST /v1/events with Authorization: Bearer test-secret and body {\"type\":\"smoke\"} but no Content-Type header",
+      "real_components": [
+        "Echo HTTP server",
+        "Bearer token authentication middleware",
+        "Payload validation handler"
+      ],
+      "mockable": [
+        "SQLite database (to verify no writes occur)"
+      ],
+      "expected_effects": [
+        "HTTP 400 Bad Request response",
+        "Response body is {\"message\": \"<error description>\"} with Content-Type: application/json",
+        "No rows inserted into the events table"
+      ]
+    },
+    {
+      "id": "TS-01-SMOKE-4",
+      "execution_path_id": "01-PATH-4",
+      "description": "Smoke test for the liveness probe: GET /healthz returns 200 OK immediately without database interaction.",
+      "trigger": "Send GET /healthz to the running service",
+      "real_components": [
+        "Echo HTTP server",
+        "Liveness handler"
+      ],
+      "mockable": [
+        "SQLite database (not involved in liveness check)"
+      ],
+      "expected_effects": [
+        "HTTP 200 OK response"
+      ]
+    },
+    {
+      "id": "TS-01-SMOKE-5",
+      "execution_path_id": "01-PATH-5",
+      "description": "Smoke test for the readiness probe when the database is available: GET /readyz executes SELECT 1 successfully and returns 200 OK.",
+      "trigger": "Send GET /readyz to the running service with SQLite database available",
+      "real_components": [
+        "Echo HTTP server",
+        "Readiness handler",
+        "SQLite database"
+      ],
+      "mockable": [],
+      "expected_effects": [
+        "HTTP 200 OK response",
+        "SELECT 1 query executed against the database"
+      ]
+    },
+    {
+      "id": "TS-01-SMOKE-6",
+      "execution_path_id": "01-PATH-6",
+      "description": "Smoke test for the readiness probe when the database is unavailable: GET /readyz returns 503 Service Unavailable with the expected error body.",
+      "trigger": "Send GET /readyz to the service after forcing the SQLite database into an unavailable state",
+      "real_components": [
+        "Echo HTTP server",
+        "Readiness handler"
+      ],
+      "mockable": [
+        "SQLite database (simulated as unavailable)"
+      ],
+      "expected_effects": [
+        "HTTP 503 Service Unavailable response",
+        "Response body is {\"message\": \"service unavailable\"} with Content-Type: application/json"
+      ]
+    },
+    {
+      "id": "TS-01-SMOKE-7",
+      "execution_path_id": "01-PATH-7",
+      "description": "Smoke test for graceful shutdown: sending SIGTERM causes the service to stop accepting new connections, complete in-flight requests, and exit within 30 seconds.",
+      "trigger": "Send SIGTERM to the basic_svc process while a slow in-flight POST /v1/events request is active",
+      "real_components": [
+        "basic_svc process",
+        "Echo HTTP server shutdown mechanism",
+        "OS signal handler"
+      ],
+      "mockable": [],
+      "expected_effects": [
+        "Service stops accepting new connections after SIGTERM",
+        "In-flight request completes and returns a response",
+        "Process exits cleanly within 30 seconds"
+      ]
+    }
+  ],
+  "coverage": {
+    "requirements_covered": [],
+    "properties_covered": [],
+    "paths_covered": [],
+    "gaps": []
+  }
+}
