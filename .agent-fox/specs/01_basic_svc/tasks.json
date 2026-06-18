@@ -326,7 +326,7 @@
             "01-REQ-5.1",
             "01-REQ-5.2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -345,7 +345,7 @@
             "01-REQ-5.1",
             "01-REQ-5.2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],

@@ -3,13 +3,15 @@ package handler
 
 import (
 	"database/sql"
+	"log/slog"
 
 	"github.com/labstack/echo/v4"
 )
 
 // EventsHandler handles POST /v1/events requests.
 type EventsHandler struct {
-	DB *sql.DB
+	DB     *sql.DB
+	Logger *slog.Logger
 }
 
 // Handle processes an event ingestion request.

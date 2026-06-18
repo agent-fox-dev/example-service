@@ -3,9 +3,11 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/agent-fox/example-service/internal/config"
+	"github.com/agent-fox/example-service/internal/logger"
 )
 
 func main() {
@@ -15,6 +17,21 @@ func main() {
 		os.Exit(1)
 	}
 
-	// TODO: implement remaining startup in task groups 4, 5, 7, 8, 9
+	log, err := logger.New(cfg.LogLevel)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "startup error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Set as the default logger so any package-level slog calls also emit JSON.
+	slog.SetDefault(log)
+
+	log.Info("configuration loaded",
+		slog.String("port", cfg.Port),
+		slog.String("db_path", cfg.DBPath),
+		slog.String("log_level", cfg.LogLevel),
+	)
+
+	// TODO: implement remaining startup in task groups 5, 7, 8, 9
 	_ = cfg
 }
