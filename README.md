@@ -134,11 +134,17 @@ Execution order:
     14. 01_basic_svc:0:verifier — Verifier Check
   ```
 
-Make sure everything is committed by now, and merged into branch `develop`. Now start coding:
+Make sure everything is committed by now, and merged into branch `develop`. 
+
+Now start coding:
 
 ```shell
 af code
+```
 
+`agent-fox` will implement the specification, one task at a time:
+
+```shell
   /\_/\   _
   / o.o \/\ \
  ( > ^ < ) ) )
