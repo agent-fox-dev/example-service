@@ -2,9 +2,15 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/labstack/echo/v4"
 
@@ -62,12 +68,31 @@ func main() {
 	e.GET("/healthz", livenessHandler.Handle)
 	e.GET("/readyz", readinessHandler.Handle)
 
-	// Start the HTTP server.
-	// TODO: implement graceful shutdown in task group 9
+	// Start the HTTP server in a goroutine so main can wait for shutdown signals.
 	addr := ":" + cfg.Port
-	log.Info("starting server", slog.String("addr", addr))
-	if err := e.Start(addr); err != nil {
-		log.Error("server error", slog.String("error", err.Error()))
+	go func() {
+		log.Info("starting server", slog.String("addr", addr))
+		if err := e.Start(addr); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Error("server error", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+	}()
+
+	// Wait for SIGTERM or SIGINT to initiate graceful shutdown.
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
+	sig := <-quit
+	log.Info("received shutdown signal", slog.String("signal", sig.String()))
+
+	// Enforce a maximum shutdown timeout of 30 seconds. e.Shutdown stops
+	// accepting new connections and waits for in-flight requests to complete.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := e.Shutdown(ctx); err != nil {
+		log.Error("graceful shutdown timed out, forcing exit", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
+
+	log.Info("server stopped gracefully")
 }
