@@ -472,7 +472,7 @@
             "01-REQ-2.E2",
             "01-REQ-2.E3"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -492,7 +492,7 @@
           "requirement_refs": [
             "01-PROP-2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],
