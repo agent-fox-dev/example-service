@@ -200,7 +200,7 @@ create the spec directory structure.
 
 2. Create the spec:
    ```bash
-   spec new /tmp/prd_<spec_name>.md --name <spec_name> --quiet
+   spec new /tmp/prd_<spec_name>.md --name <spec_name>
    ```
 
 3. Parse the JSON output to get the spec directory name (e.g. `{"spec_dir": "136_my_feature", "state": "init"}`).
@@ -220,7 +220,7 @@ step catches gaps that may have been missed during the manual review in Step 1.
 
 1. Run the initial assessment:
    ```bash
-   spec refine <spec_dir_name> --quiet
+   spec refine <spec_dir_name>
    ```
 
 2. Review the JSON output. If `quality` is `"ready"`, proceed to Step 5.
@@ -236,10 +236,15 @@ step catches gaps that may have been missed during the manual review in Step 1.
      "Q2": "answer to question 2"
    }
    EOF
-   spec refine <spec_dir_name> --answers /tmp/answers_<spec_name>.json --quiet
+   spec refine <spec_dir_name> --answers /tmp/answers_<spec_name>.json
    ```
 
 5. Repeat until the assessment returns `quality: "ready"`.
+
+6. **Verify incorporation.** After refinement with answers, re-read the
+   generated `prd.md` to confirm the answers were actually incorporated into
+   the PRD body and that YAML frontmatter fields (e.g. `owner`) were updated
+   if applicable.
 
 **Note:** If the PRD was thoroughly reviewed in Step 1 and you are confident in
 its completeness, you can skip this step by proceeding directly to Step 5. The
@@ -252,7 +257,7 @@ its completeness, you can skip this step by proceeding directly to Step 5. The
 Use the `spec` CLI to generate the three JSON artifacts:
 
 ```bash
-spec generate <spec_dir_name> --quiet
+spec generate <spec_dir_name>
 ```
 
 This generates:
@@ -263,6 +268,28 @@ This generates:
 The command outputs JSON listing the generated artifacts. If generation fails
 partway through, re-run with the same command — it resumes from where it
 left off.
+
+### Post-generation language audit
+
+After generation completes, verify the generated artifacts are consistent with
+the project's language and tooling. Detect the project language from manifest
+files (`go.mod` → Go, `package.json` → TypeScript/JavaScript, `pyproject.toml`
+→ Python, `Cargo.toml` → Rust, etc.) or from the PRD's Tech Stack section.
+
+Check `tasks.json` for:
+- **`test_commands`**: Must use the project's test runner and linter (e.g.
+  `go test` / `go vet` for Go, not `pytest` / `ruff`).
+- **Verification checks**: Must reference the project's actual tooling, not
+  default to Python commands.
+- **Subtask details**: Must use language-appropriate constructs (e.g. Go
+  return tuples `(*Type, error)`, not Python `Optional[Type]` / `return None`).
+- **Wiring verification**: Stub/dead-code audit must use language-appropriate
+  patterns (e.g. `panic("not implemented")` for Go, not `raise NotImplementedError`).
+- **File paths**: Must match project conventions (e.g. `internal/` for Go,
+  not `tests/` or `src/`).
+
+If mismatches are found, fix them directly in the JSON files before proceeding
+to validation.
 
 ---
 
@@ -335,6 +362,11 @@ verify quality. Check:
 - First task group has `"kind": "tests"`
 - Last task group has `"kind": "wiring_verification"`
 - Task groups have 3-6 subtasks each
+- `test_commands` in `tasks.json` uses the project's actual test runner and
+  linter — not a different language's defaults
+- Subtask details and verification checks use language-appropriate constructs,
+  file paths, and tooling throughout (see post-generation language audit in
+  Step 5)
 
 If issues are found, edit the JSON files directly and re-run `spec validate`.
 
