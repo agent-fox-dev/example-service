@@ -11,19 +11,20 @@ import (
 	"syscall"
 	"testing"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // TestTS01_SMOKE1_EndToEndEventIngestion is a full end-to-end smoke test of
 // successful audit event ingestion: a valid POST /v1/events request flows
 // through auth, validation, SQLite persistence, and returns 201 Created.
+// Updated for spec 02: uses canonical AuditEvent; id is the event's own id,
+// not a server-generated UUID.
 // Execution Path: 01-PATH-1
 func TestTS01_SMOKE1_EndToEndEventIngestion(t *testing.T) {
 	app := setupTestApp(t, testBearerToken)
 	defer app.teardown()
 
-	body := `{"type":"smoke","source":"test"}`
+	eventID := "ts01-smoke1-event-id"
+	body := canonicalAuditEventWithID(eventID)
 	req, err := http.NewRequest(http.MethodPost, app.Server.URL+"/v1/events", strings.NewReader(body))
 	if err != nil {
 		t.Fatalf("failed to create request: %v", err)
@@ -51,22 +52,25 @@ func TestTS01_SMOKE1_EndToEndEventIngestion(t *testing.T) {
 		t.Errorf("expected no Content-Type header, got %q", ct)
 	}
 
-	// Assert one new row in the events table with the correct payload,
-	// a valid UUID id, and received_at set to current UTC time.
-	var id, payload, receivedAt string
-	err = app.DB.QueryRow("SELECT id, payload, received_at FROM events").Scan(&id, &payload, &receivedAt)
+	// Assert one new row in the events table with the event's own id
+	// and received_at set to current UTC time.
+	row := app.queryEventByID(t, eventID)
+	if row.ID != eventID {
+		t.Errorf("expected id %q, got %q", eventID, row.ID)
+	}
+
+	// Verify payload is semantically correct JSON.
+	var payloadData map[string]any
+	if err := json.Unmarshal([]byte(row.Payload), &payloadData); err != nil {
+		t.Fatalf("payload is not valid JSON: %v", err)
+	}
+	if payloadData["plan_hash"] != "abc123" {
+		t.Errorf("expected payload plan_hash %q, got %v", "abc123", payloadData["plan_hash"])
+	}
+
+	parsedTime, err := time.Parse(time.RFC3339Nano, row.ReceivedAt)
 	if err != nil {
-		t.Fatalf("failed to query event row: %v", err)
-	}
-	if payload != body {
-		t.Errorf("expected payload %q, got %q", body, payload)
-	}
-	if _, err := uuid.Parse(id); err != nil {
-		t.Errorf("id %q is not a valid UUID: %v", id, err)
-	}
-	parsedTime, err := time.Parse(time.RFC3339Nano, receivedAt)
-	if err != nil {
-		t.Fatalf("failed to parse received_at %q: %v", receivedAt, err)
+		t.Fatalf("failed to parse received_at %q: %v", row.ReceivedAt, err)
 	}
 	if time.Since(parsedTime) > 10*time.Second {
 		t.Errorf("received_at %v is too far from current time", parsedTime)
@@ -286,8 +290,8 @@ func TestTS01_SMOKE7_GracefulShutdown(t *testing.T) {
 	}
 
 	// Send a POST /v1/events request to verify the full pipeline works
-	// before sending SIGTERM.
-	body := `{"type":"smoke","signal":"pre-shutdown"}`
+	// before sending SIGTERM. Uses canonical AuditEvent per spec 02.
+	body := canonicalAuditEventWithID("ts01-smoke7-shutdown-id")
 	req, err := http.NewRequest(http.MethodPost, "http://127.0.0.1:18915/v1/events", strings.NewReader(body))
 	if err != nil {
 		t.Fatalf("failed to create request: %v", err)

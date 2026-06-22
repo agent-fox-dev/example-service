@@ -2,7 +2,9 @@
 package handler
 
 import (
+	"bytes"
 	"database/sql"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -38,8 +40,26 @@ func (h *EventsHandler) Handle(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "request body must not be empty")
 	}
 
-	// Store the raw JSON payload.
-	if err := db.InsertEvent(c.Request().Context(), h.DB, string(body)); err != nil {
+	// Validate and unmarshal the JSON body into an AuditEvent struct.
+	var event db.AuditEvent
+	if err := json.Unmarshal(body, &event); err != nil {
+		// Silently reject: return 201 without storing (02-REQ-2.E1).
+		return c.NoContent(http.StatusCreated)
+	}
+
+	// Check that required fields are non-empty strings (02-REQ-2.2).
+	if event.ID == "" || event.Timestamp == "" || event.RunID == "" || event.EventType == "" || event.Severity == "" {
+		return c.NoContent(http.StatusCreated)
+	}
+
+	// Check that payload's first non-whitespace byte is '{' (02-REQ-2.3).
+	trimmed := bytes.TrimLeft(event.Payload, " \t\r\n")
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return c.NoContent(http.StatusCreated)
+	}
+
+	// Store the validated event.
+	if err := db.InsertEvent(c.Request().Context(), h.DB, event); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to store event")
 	}
 

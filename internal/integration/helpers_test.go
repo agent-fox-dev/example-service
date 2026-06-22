@@ -42,9 +42,16 @@ func setupTestApp(t *testing.T, token string) *testApp {
 		t.Fatalf("failed to open test database: %v", err)
 	}
 
-	// Create the events table schema.
+	// Create the events table schema (10-column schema per spec 02).
 	_, err = database.Exec(`CREATE TABLE IF NOT EXISTS events (
 		id TEXT PRIMARY KEY,
+		timestamp TEXT NOT NULL,
+		run_id TEXT NOT NULL,
+		event_type TEXT NOT NULL,
+		node_id TEXT NOT NULL,
+		session_id TEXT NOT NULL,
+		archetype TEXT NOT NULL,
+		severity TEXT NOT NULL,
 		payload TEXT NOT NULL,
 		received_at DATETIME NOT NULL
 	)`)
@@ -93,6 +100,34 @@ func (app *testApp) eventRowCount(t *testing.T) int {
 		t.Fatalf("failed to count event rows: %v", err)
 	}
 	return count
+}
+
+// eventRow holds all 10 columns of a row from the events table.
+type eventRow struct {
+	ID         string
+	Timestamp  string
+	RunID      string
+	EventType  string
+	NodeID     string
+	SessionID  string
+	Archetype  string
+	Severity   string
+	Payload    string
+	ReceivedAt string
+}
+
+// queryEventByID returns the full event row for the given id, or fails the test.
+func (app *testApp) queryEventByID(t *testing.T, id string) eventRow {
+	t.Helper()
+	var row eventRow
+	err := app.DB.QueryRow(
+		"SELECT id, timestamp, run_id, event_type, node_id, session_id, archetype, severity, payload, received_at FROM events WHERE id = ?",
+		id,
+	).Scan(&row.ID, &row.Timestamp, &row.RunID, &row.EventType, &row.NodeID, &row.SessionID, &row.Archetype, &row.Severity, &row.Payload, &row.ReceivedAt)
+	if err != nil {
+		t.Fatalf("failed to query event by id %q: %v", id, err)
+	}
+	return row
 }
 
 // setupTestAppWithBrokenDB creates a test app whose database file has been

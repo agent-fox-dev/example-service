@@ -1,55 +1,52 @@
 package integration_test
 
 import (
+	"encoding/json"
 	"fmt"
-	"math/rand"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/agent-fox/example-service/internal/config"
 )
 
 // TestTS01_P1_AuthenticatedRequestsAlwaysPersisted exercises the property that
-// for any POST /v1/events request that passes authentication and payload
-// validation, exactly one row is inserted with the raw payload stored and
+// for any POST /v1/events request that passes authentication and audit event
+// validation, exactly one row is inserted with the payload stored and
 // received_at set to UTC time.
+// Updated for spec 02: uses valid canonical AuditEvent bodies with distinct
+// ids (02-REQ-4.2); uses semantic JSON comparison for payload (02-REQ-4.3).
 // Property: 01-PROP-1 | Test Spec: TS-01-P1
 // Validates: 01-REQ-1.1, 01-REQ-1.2, 01-REQ-1.3
 func TestTS01_P1_AuthenticatedRequestsAlwaysPersisted(t *testing.T) {
 	app := setupTestApp(t, testBearerToken)
 	defer app.teardown()
 
-	// Generate a variety of arbitrary non-empty JSON bodies.
-	testBodies := []string{
-		`{"simple":"value"}`,
-		`{"number":42}`,
-		`{"bool":true}`,
-		`{"null_field":null}`,
-		`{"nested":{"deep":{"value":1}}}`,
-		`{"array":[1,2,3,4,5]}`,
-		`{"mixed":{"a":1,"b":"two","c":[true,false],"d":null}}`,
-		`{"unicode":"こんにちは世界"}`,
-		`{"empty_object":{}}`,
-		`{"empty_array":[]}`,
+	// Generate valid AuditEvent bodies with distinct ids and varied payloads.
+	type testCase struct {
+		id      string
+		payload string
+	}
+	cases := []testCase{
+		{"p1-event-0", `{"key":"simple"}`},
+		{"p1-event-1", `{"number":42}`},
+		{"p1-event-2", `{"nested":{"deep":{"value":1}}}`},
+		{"p1-event-3", `{"unicode":"こんにちは世界"}`},
+		{"p1-event-4", `{"empty_object":{}}`},
+		{"p1-event-5", `{"bool_val":true}`},
+		{"p1-event-6", `{"array_val":[1,2,3]}`},
+		{"p1-event-7", `{"mixed":{"a":1,"b":"two"}}`},
+		{"p1-event-8", `{"null_in_obj":null}`},
+		{"p1-event-9", `{"plan_hash":"xyz789"}`},
 	}
 
-	// Add some randomly generated bodies.
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	for i := range 10 {
-		key := fmt.Sprintf("prop_key_%d", i)
-		val := rng.Intn(10000)
-		testBodies = append(testBodies, fmt.Sprintf(`{"%s":%d}`, key, val))
-	}
-
-	for i, body := range testBodies {
+	for i, tc := range cases {
 		t.Run(fmt.Sprintf("body_%d", i), func(t *testing.T) {
 			countBefore := app.eventRowCount(t)
 			before := time.Now().UTC().Add(-2 * time.Second)
 
+			body := `{"id":"` + tc.id + `","timestamp":"2026-06-18T11:26:26.527713+00:00","run_id":"20260618_112626_17dd3f","event_type":"run.start","node_id":"","session_id":"","archetype":"","severity":"info","payload":` + tc.payload + `}`
 			req, err := http.NewRequest(http.MethodPost, app.Server.URL+"/v1/events", strings.NewReader(body))
 			if err != nil {
 				t.Fatalf("failed to create request: %v", err)
@@ -76,33 +73,32 @@ func TestTS01_P1_AuthenticatedRequestsAlwaysPersisted(t *testing.T) {
 				t.Errorf("expected row count to increase by 1 (from %d to %d), got %d", countBefore, countBefore+1, countAfter)
 			}
 
-			// Query the most recently inserted row.
-			var id, payload, receivedAt string
-			err = app.DB.QueryRow("SELECT id, payload, received_at FROM events ORDER BY rowid DESC LIMIT 1").Scan(&id, &payload, &receivedAt)
-			if err != nil {
-				t.Fatalf("failed to query event row: %v", err)
+			// Query the inserted row by id.
+			row := app.queryEventByID(t, tc.id)
+
+			// Assert id matches the submitted event's own id.
+			if row.ID != tc.id {
+				t.Errorf("expected id %q, got %q", tc.id, row.ID)
 			}
 
-			// Assert payload matches the exact body sent.
-			if payload != body {
-				t.Errorf("payload mismatch:\nexpected: %s\ngot:      %s", body, payload)
+			// Assert payload is semantically equivalent JSON.
+			var storedPayload, expectedPayload any
+			if err := json.Unmarshal([]byte(row.Payload), &storedPayload); err != nil {
+				t.Fatalf("stored payload is not valid JSON: %v", err)
 			}
-
-			// Assert id is a valid UUID.
-			if _, err := uuid.Parse(id); err != nil {
-				t.Errorf("id %q is not a valid UUID: %v", id, err)
+			if err := json.Unmarshal([]byte(tc.payload), &expectedPayload); err != nil {
+				t.Fatalf("expected payload is not valid JSON: %v", err)
+			}
+			storedJSON, _ := json.Marshal(storedPayload)
+			expectedJSON, _ := json.Marshal(expectedPayload)
+			if string(storedJSON) != string(expectedJSON) {
+				t.Errorf("payload mismatch:\nstored:   %s\nexpected: %s", storedJSON, expectedJSON)
 			}
 
 			// Assert received_at is within the expected UTC time window.
-			parsedTime, err := time.Parse(time.RFC3339Nano, receivedAt)
+			parsedTime, err := time.Parse(time.RFC3339Nano, row.ReceivedAt)
 			if err != nil {
-				parsedTime, err = time.Parse("2006-01-02T15:04:05Z", receivedAt)
-				if err != nil {
-					parsedTime, err = time.Parse("2006-01-02 15:04:05", receivedAt)
-					if err != nil {
-						t.Fatalf("failed to parse received_at %q: %v", receivedAt, err)
-					}
-				}
+				t.Fatalf("failed to parse received_at %q: %v", row.ReceivedAt, err)
 			}
 			if parsedTime.Before(before) || parsedTime.After(after) {
 				t.Errorf("received_at %v is not within expected range [%v, %v]", parsedTime, before, after)

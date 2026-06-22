@@ -166,8 +166,9 @@ func TestTS01_E3_EmptyRequestBody(t *testing.T) {
 }
 
 // TestTS01_E4_DatabaseInsertFailure verifies that when a database error occurs
-// during event storage, the service returns 500 Internal Server Error with an
-// Echo Framework error body.
+// during event storage of a valid audit event, the service returns an error.
+// Updated for spec 02: uses canonical AuditEvent payload so the event passes
+// validation and reaches InsertEvent; expects the DB error to surface.
 // Requirement: 01-REQ-1.E3 | Test Spec: TS-01-E4
 func TestTS01_E4_DatabaseInsertFailure(t *testing.T) {
 	app := setupTestApp(t, testBearerToken)
@@ -179,7 +180,7 @@ func TestTS01_E4_DatabaseInsertFailure(t *testing.T) {
 		t.Fatalf("failed to drop events table: %v", err)
 	}
 
-	body := `{"event":"test"}`
+	body := canonicalAuditEventWithID("ts01-e4-event-id")
 	req, err := http.NewRequest(http.MethodPost, app.Server.URL+"/v1/events", strings.NewReader(body))
 	if err != nil {
 		t.Fatalf("failed to create request: %v", err)

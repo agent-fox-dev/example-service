@@ -25,9 +25,16 @@ func Open(dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("opening database %q: %w", dbPath, err)
 	}
 
-	// Create the events table if it does not already exist.
+	// Create the events table if it does not already exist (10-column schema per spec 02).
 	_, err = database.Exec(`CREATE TABLE IF NOT EXISTS events (
 		id TEXT PRIMARY KEY,
+		timestamp TEXT NOT NULL,
+		run_id TEXT NOT NULL,
+		event_type TEXT NOT NULL,
+		node_id TEXT NOT NULL,
+		session_id TEXT NOT NULL,
+		archetype TEXT NOT NULL,
+		severity TEXT NOT NULL,
 		payload TEXT NOT NULL,
 		received_at DATETIME NOT NULL
 	)`)

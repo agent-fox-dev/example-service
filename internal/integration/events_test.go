@@ -1,12 +1,11 @@
 package integration_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // TestTS01_1_SuccessfulEventIngestion verifies that a POST /v1/events request
@@ -18,7 +17,7 @@ func TestTS01_1_SuccessfulEventIngestion(t *testing.T) {
 	app := setupTestApp(t, testBearerToken)
 	defer app.teardown()
 
-	body := `{"type":"audit","action":"login"}`
+	body := canonicalAuditEventWithID("ts01-1-event-id")
 	req, err := http.NewRequest(http.MethodPost, app.Server.URL+"/v1/events", strings.NewReader(body))
 	if err != nil {
 		t.Fatalf("failed to create request: %v", err)
@@ -49,31 +48,22 @@ func TestTS01_1_SuccessfulEventIngestion(t *testing.T) {
 		t.Errorf("expected no Content-Type header, got %q", ct)
 	}
 
-	// Assert one row in the events table with the correct payload.
+	// Assert one row in the events table.
 	count := app.eventRowCount(t)
 	if count != 1 {
 		t.Errorf("expected 1 row in events table, got %d", count)
 	}
-
-	var payload string
-	err = app.DB.QueryRow("SELECT payload FROM events").Scan(&payload)
-	if err != nil {
-		t.Fatalf("failed to query event payload: %v", err)
-	}
-	if payload != body {
-		t.Errorf("expected payload %q, got %q", body, payload)
-	}
 }
 
-// TestTS01_2_RawJSONStoredVerbatim verifies that the service stores the raw
-// JSON body exactly as received without performing any schema validation,
-// accepting arbitrary JSON structures.
+// TestTS01_2_RawJSONStoredVerbatim verifies that the service stores the
+// event payload as re-serialized JSON (semantically equivalent to submitted).
+// Updated for spec 02: uses canonical AuditEvent payload.
 // Requirement: 01-REQ-1.2 | Test Spec: TS-01-2
 func TestTS01_2_RawJSONStoredVerbatim(t *testing.T) {
 	app := setupTestApp(t, testBearerToken)
 	defer app.teardown()
 
-	body := `{"unexpected_field":true,"nested":{"a":1},"arr":[1,2,3]}`
+	body := canonicalAuditEventWithID("ts01-2-event-id")
 	req, err := http.NewRequest(http.MethodPost, app.Server.URL+"/v1/events", strings.NewReader(body))
 	if err != nil {
 		t.Fatalf("failed to create request: %v", err)
@@ -92,26 +82,39 @@ func TestTS01_2_RawJSONStoredVerbatim(t *testing.T) {
 	}
 
 	var payload string
-	err = app.DB.QueryRow("SELECT payload FROM events ORDER BY received_at DESC LIMIT 1").Scan(&payload)
+	err = app.DB.QueryRow("SELECT payload FROM events WHERE id = ?", "ts01-2-event-id").Scan(&payload)
 	if err != nil {
 		t.Fatalf("failed to query event payload: %v", err)
 	}
-	if payload != body {
-		t.Errorf("payload not stored verbatim:\nexpected: %s\ngot:      %s", body, payload)
+
+	// Use semantic JSON comparison since payload is re-serialized via
+	// json.Marshal and byte-for-byte equality is not guaranteed (02-REQ-4.3).
+	var storedPayload, expectedPayload map[string]any
+	if err := json.Unmarshal([]byte(payload), &storedPayload); err != nil {
+		t.Fatalf("stored payload is not valid JSON: %v", err)
+	}
+	if err := json.Unmarshal([]byte(`{"plan_hash":"abc123"}`), &expectedPayload); err != nil {
+		t.Fatalf("expected payload is not valid JSON: %v", err)
+	}
+	if storedPayload["plan_hash"] != expectedPayload["plan_hash"] {
+		t.Errorf("payload mismatch:\nstored: %s\nexpected plan_hash: %s", payload, `abc123`)
 	}
 }
 
-// TestTS01_3_UUIDAndReceivedAtGenerated verifies that a UUID is generated for
-// the id column and received_at is set to the current UTC time on every insert
-// into the events table.
+// TestTS01_3_EventIDAndReceivedAtGenerated verifies that the event's own
+// id field is used as the primary key and received_at is set to the current
+// UTC time on every insert into the events table.
+// Updated for spec 02: uses canonical AuditEvent; id is the event's own id,
+// not a server-generated UUID (02-REQ-4.2).
 // Requirement: 01-REQ-1.3 | Test Spec: TS-01-3
-func TestTS01_3_UUIDAndReceivedAtGenerated(t *testing.T) {
+func TestTS01_3_EventIDAndReceivedAtGenerated(t *testing.T) {
 	app := setupTestApp(t, testBearerToken)
 	defer app.teardown()
 
 	before := time.Now().UTC().Add(-2 * time.Second)
 
-	body := `{"event":"test"}`
+	eventID := "ts01-3-event-id"
+	body := canonicalAuditEventWithID(eventID)
 	req, err := http.NewRequest(http.MethodPost, app.Server.URL+"/v1/events", strings.NewReader(body))
 	if err != nil {
 		t.Fatalf("failed to create request: %v", err)
@@ -132,27 +135,20 @@ func TestTS01_3_UUIDAndReceivedAtGenerated(t *testing.T) {
 	}
 
 	var id, receivedAt string
-	err = app.DB.QueryRow("SELECT id, received_at FROM events ORDER BY received_at DESC LIMIT 1").Scan(&id, &receivedAt)
+	err = app.DB.QueryRow("SELECT id, received_at FROM events WHERE id = ?", eventID).Scan(&id, &receivedAt)
 	if err != nil {
 		t.Fatalf("failed to query event row: %v", err)
 	}
 
-	// Verify id is a valid UUID.
-	if _, err := uuid.Parse(id); err != nil {
-		t.Errorf("id %q is not a valid UUID: %v", id, err)
+	// Verify id matches the submitted event's own id (not a server-side UUID).
+	if id != eventID {
+		t.Errorf("expected id %q, got %q", eventID, id)
 	}
 
 	// Verify received_at is within the expected time window.
 	parsedTime, err := time.Parse(time.RFC3339Nano, receivedAt)
 	if err != nil {
-		// Try alternative datetime formats that SQLite might use.
-		parsedTime, err = time.Parse("2006-01-02T15:04:05Z", receivedAt)
-		if err != nil {
-			parsedTime, err = time.Parse("2006-01-02 15:04:05", receivedAt)
-			if err != nil {
-				t.Fatalf("failed to parse received_at %q: %v", receivedAt, err)
-			}
-		}
+		t.Fatalf("failed to parse received_at %q: %v", receivedAt, err)
 	}
 
 	if parsedTime.Before(before) || parsedTime.After(after) {
@@ -197,7 +193,7 @@ func TestTS01_5_ValidTokenProceedsToStorage(t *testing.T) {
 	app := setupTestApp(t, token)
 	defer app.teardown()
 
-	body := `{"key":"value"}`
+	body := canonicalAuditEventWithID("ts01-5-event-id")
 	req, err := http.NewRequest(http.MethodPost, app.Server.URL+"/v1/events", strings.NewReader(body))
 	if err != nil {
 		t.Fatalf("failed to create request: %v", err)
