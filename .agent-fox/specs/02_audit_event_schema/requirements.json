@@ -1,0 +1,623 @@
+{
+  "$schema": null,
+  "spec_id": "02",
+  "spec_name": "audit_event_schema",
+  "schema_version": 1,
+  "introduction": "This spec enforces structured validation and typed storage for audit events ingested via the `POST /v1/events` endpoint, replacing the existing raw JSON passthrough with per-field validation against the agent-fox audit event schema and a dedicated 10-column SQLite table.",
+  "glossary": {
+    "AuditEvent": "A Go struct in the `db` package representing a validated audit event with JSON struct tags for unmarshalling.",
+    "CREATE TABLE IF NOT EXISTS": "A SQLite DDL statement that creates the `events` table only if it does not already exist, used as the safe migration strategy on service startup.",
+    "EventsHandler": "The Go handler struct in `internal/handler` that processes POST /v1/events requests and holds a `*sql.DB` field for database access.",
+    "INSERT OR IGNORE": "A SQLite insert variant that silently skips the insert when a primary key conflict is detected, used to handle duplicate events.",
+    "InsertEvent": "The Go function in the `db` package responsible for inserting a validated AuditEvent into the events table.",
+    "POST /v1/events": "The HTTP endpoint that accepts incoming audit event payloads from agent-fox clients.",
+    "RFC3339Nano": "The Go time format constant `time.RFC3339Nano` producing nanosecond-precision timestamps such as `2026-06-18T11:26:26.123456789Z`.",
+    "TestTS01_1": "Existing integration test updated to use the canonical valid AuditEvent payload.",
+    "TestTS01_2": "Existing integration test updated to use the canonical valid AuditEvent payload.",
+    "TestTS01_5": "Existing integration test updated to use the canonical valid AuditEvent payload.",
+    "TestTS02_1": "Integration test verifying that a valid canonical audit event is stored correctly.",
+    "TestTS02_2": "Integration test verifying that invalid payloads are silently rejected with 201 and not stored.",
+    "TestTS02_3": "Integration test verifying that duplicate event IDs are silently ignored and only one row is stored.",
+    "agent-fox": "The external system that produces audit events and submits them to this service.",
+    "archetype": "A required string field on an audit event identifying the agent archetype; may be an empty string.",
+    "c.NoContent": "The Echo framework method that writes an HTTP response with a given status code and a zero-byte body and no Content-Type header.",
+    "db package": "The Go package at `internal/db` that owns the events schema DDL, the AuditEvent struct, and the InsertEvent function.",
+    "db.ExecContext": "The Go method on `*sql.DB` used to execute a SQL statement with a context, used for the bare single-row insert in InsertEvent.",
+    "event_type": "A required non-empty string field on an audit event identifying the kind of event (e.g. `run.start`); any non-empty string is accepted.",
+    "events": "The SQLite database table that stores ingested audit events, with one column per top-level event field.",
+    "h.DB": "The `*sql.DB` field on the EventsHandler struct used by the handler to access the database connection.",
+    "json.RawMessage": "A Go type ([]byte) that captures raw JSON bytes during unmarshalling without further parsing, used for the `payload` field.",
+    "json.Unmarshal": "The Go standard library function used for single-pass deserialization of a JSON body into an AuditEvent struct.",
+    "node_id": "A required string field on an audit event identifying the graph node; may be an empty string.",
+    "payload": "The JSON object field of an audit event that carries event-type-specific data; stored as re-serialized JSON text in the `events` table.",
+    "received_at": "A server-generated UTC timestamp column in the `events` table recording when the event was ingested, stored as RFC3339Nano text.",
+    "run_id": "A required non-empty string field on an audit event identifying the agent-fox run that produced the event.",
+    "session_id": "A required string field on an audit event identifying the session; may be an empty string.",
+    "severity": "A required non-empty string field on an audit event indicating its severity level (e.g. `info`).",
+    "silent rejection": "The behavior where an invalid event causes the handler to return 201 Created without storing the event and without logging an error.",
+    "id": "A required non-empty string field on an audit event serving as the primary key in the events table.",
+    "timestamp": "A required non-empty string field on an audit event containing the ISO 8601 datetime when the event was produced.",
+    "{": "The opening brace character used as the first byte check to verify a JSON value is an object.",
+    "[": "The opening bracket character indicating a JSON array value.",
+    "\"": "The double-quote character indicating a JSON string value.",
+    "n": "The lowercase letter 'n' as the first byte of JSON `null`.",
+    "json.Decoder": "The Go standard library streaming JSON decoder; NOT used in this spec — json.Unmarshal is used instead.",
+    "DisallowUnknownFields": "A json.Decoder option that rejects JSON with unknown fields; explicitly NOT used in this spec to allow forward compatibility.",
+    "json.Marshal": "The Go standard library function for serializing a Go value to JSON bytes, used to re-serialize the payload field before storage.",
+    "time.Now().UTC().Format(time.RFC3339Nano)": "The Go expression producing a nanosecond-precision UTC timestamp string for the received_at column.",
+    "2026-06-18T11:26:26.123456789Z": "An example RFC3339Nano-formatted timestamp illustrating the received_at column format.",
+    "CREATE TABLE IF NOT EXISTS events (...)": "The authoritative DDL statement that creates the 10-column events table if it does not already exist.",
+    "INSERT OR IGNORE INTO events (...)": "The SQL INSERT variant that silently skips a row when the primary key already exists.",
+    "func InsertEvent(ctx context.Context, db *sql.DB, event AuditEvent) error": "The complete Go function signature for the InsertEvent function in the db package.",
+    "*sql.DB": "The Go standard library type representing a database connection pool, used by EventsHandler and InsertEvent."
+  },
+  "requirements": [
+    {
+      "id": "02-REQ-1",
+      "title": "Audit event structure definition",
+      "user_story": {
+        "role": "service operator",
+        "goal": "define a strict 9-field audit event schema",
+        "benefit": "only well-formed events from agent-fox are accepted and stored"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "02-REQ-1.1",
+          "ears_pattern": "ubiquitous",
+          "system": "AuditEvent struct",
+          "action": "defines exactly 9 top-level fields: `id`, `timestamp`, `run_id`, `event_type`, `node_id`, `session_id`, `archetype`, `severity`, and `payload`, each with the correct Go type and JSON struct tag",
+          "return_contract": null
+        },
+        {
+          "id": "02-REQ-1.2",
+          "ears_pattern": "ubiquitous",
+          "system": "AuditEvent struct",
+          "action": "declares the `payload` field as `json.RawMessage` to preserve raw JSON bytes during unmarshalling",
+          "return_contract": null
+        },
+        {
+          "id": "02-REQ-1.3",
+          "ears_pattern": "ubiquitous",
+          "system": "AuditEvent struct",
+          "action": "lives in the `db package` alongside `InsertEvent` and uses JSON struct tags compatible with `json.Unmarshal` in both the handler and the `db package`",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "02-REQ-1.E1",
+          "ears_pattern": "unwanted",
+          "system": "AuditEvent struct",
+          "action": "silently ignores unknown fields via Go default `json.Unmarshal` behaviour and does not reject the event on that basis",
+          "return_contract": null,
+          "error_condition": "the incoming JSON body contains extra top-level fields beyond the 9 defined"
+        }
+      ]
+    },
+    {
+      "id": "02-REQ-2",
+      "title": "Incoming event validation",
+      "user_story": {
+        "role": "service",
+        "goal": "validate every incoming JSON body against the audit event structure before storing",
+        "benefit": "only structurally correct events reach the database"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "02-REQ-2.1",
+          "ears_pattern": "event_driven",
+          "system": "POST /v1/events handler",
+          "action": "performs a single-pass `json.Unmarshal` of the body into an `AuditEvent` struct to validate that the body is valid JSON, is a top-level object, and all 9 fields are present with correct JSON types",
+          "return_contract": null,
+          "trigger": "a non-empty request body is received on `POST /v1/events`"
+        },
+        {
+          "id": "02-REQ-2.2",
+          "ears_pattern": "event_driven",
+          "system": "POST /v1/events handler",
+          "action": "checks that `id`, `timestamp`, `run_id`, `event_type`, and `severity` are non-empty strings; `node_id`, `session_id`, and `archetype` are accepted as empty strings",
+          "return_contract": null,
+          "trigger": "`json.Unmarshal` succeeds"
+        },
+        {
+          "id": "02-REQ-2.3",
+          "ears_pattern": "event_driven",
+          "system": "POST /v1/events handler",
+          "action": "trims leading whitespace from the `payload` field's `json.RawMessage` bytes and asserts the first byte is `{`; rejects the event if the first byte is not `{`",
+          "return_contract": null,
+          "trigger": "non-empty string checks pass"
+        },
+        {
+          "id": "02-REQ-2.4",
+          "ears_pattern": "ubiquitous",
+          "system": "POST /v1/events handler",
+          "action": "does not use `json.Decoder` with `DisallowUnknownFields`; unknown fields are silently ignored to ensure forward compatibility with future `agent-fox` event fields",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "02-REQ-2.E1",
+          "ears_pattern": "unwanted",
+          "system": "POST /v1/events handler",
+          "action": "silently rejects the event and returns 201 Created with a zero-byte body and no Content-Type header via `c.NoContent`; does not store the event and does not log an error",
+          "return_contract": "HTTP 201, zero-byte body, no Content-Type header",
+          "error_condition": "`json.Unmarshal` returns an error (malformed JSON, array, scalar, or null top-level value)"
+        },
+        {
+          "id": "02-REQ-2.E2",
+          "ears_pattern": "unwanted",
+          "system": "POST /v1/events handler",
+          "action": "silently rejects the event and returns 201 Created with a zero-byte body and no Content-Type header via `c.NoContent`; does not store the event",
+          "return_contract": "HTTP 201, zero-byte body, no Content-Type header",
+          "error_condition": "any required non-empty string field (`id`, `timestamp`, `run_id`, `event_type`, or `severity`) is an empty string after unmarshal"
+        },
+        {
+          "id": "02-REQ-2.E3",
+          "ears_pattern": "unwanted",
+          "system": "POST /v1/events handler",
+          "action": "silently rejects the event and returns 201 Created with a zero-byte body and no Content-Type header via `c.NoContent`; does not store the event",
+          "return_contract": "HTTP 201, zero-byte body, no Content-Type header",
+          "error_condition": "the `payload` field's first non-whitespace byte is not `{` (e.g. it is `[`, `n`, `\"`, or a digit)"
+        },
+        {
+          "id": "02-REQ-2.E4",
+          "ears_pattern": "unwanted",
+          "system": "POST /v1/events handler",
+          "action": "returns 400 Bad Request, preserving the existing middleware behaviour unchanged; this is not affected by this spec",
+          "return_contract": "HTTP 400 Bad Request",
+          "error_condition": "the request body is empty"
+        }
+      ]
+    },
+    {
+      "id": "02-REQ-3",
+      "title": "HTTP response contract for event ingestion",
+      "user_story": {
+        "role": "API client",
+        "goal": "receive the same HTTP response regardless of whether the submitted event was valid or invalid",
+        "benefit": "prevents schema probing and denial-of-service via error-based response differentiation"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "02-REQ-3.1",
+          "ears_pattern": "ubiquitous",
+          "system": "POST /v1/events handler",
+          "action": "returns HTTP 201 Created with a zero-byte body and no Content-Type header for every non-empty request body, whether the event is accepted and stored or silently rejected, implemented via `c.NoContent`",
+          "return_contract": "HTTP 201, zero-byte body, no Content-Type header"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "02-REQ-4",
+      "title": "Updated events table schema",
+      "user_story": {
+        "role": "service operator",
+        "goal": "store each audit event field in a dedicated column in the `events` table",
+        "benefit": "structured storage enables downstream consumers to query individual fields"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "02-REQ-4.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`events` table",
+          "action": "has exactly 10 columns: `id` (TEXT PRIMARY KEY), `timestamp` (TEXT NOT NULL), `run_id` (TEXT NOT NULL), `event_type` (TEXT NOT NULL), `node_id` (TEXT NOT NULL), `session_id` (TEXT NOT NULL), `archetype` (TEXT NOT NULL), `severity` (TEXT NOT NULL), `payload` (TEXT NOT NULL), and `received_at` (DATETIME NOT NULL), with no additional options such as WITHOUT ROWID, STRICT, or indexes",
+          "return_contract": null
+        },
+        {
+          "id": "02-REQ-4.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`events` table",
+          "action": "uses `id` from the audit event itself as the primary key; the service no longer generates server-side UUIDs for events",
+          "return_contract": null
+        },
+        {
+          "id": "02-REQ-4.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`events` table",
+          "action": "stores `payload` as re-serialized JSON text produced by `json.Marshal` on the parsed `json.RawMessage`; exact byte-for-byte preservation of the original request body is not guaranteed",
+          "return_contract": null
+        },
+        {
+          "id": "02-REQ-4.4",
+          "ears_pattern": "ubiquitous",
+          "system": "`events` table",
+          "action": "stores `received_at` as a server-generated UTC timestamp formatted with `RFC3339Nano` (e.g. `2026-06-18T11:26:26.123456789Z`), set at insert time via `time.Now().UTC().Format(time.RFC3339Nano)`",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "02-REQ-5",
+      "title": "Service startup schema migration",
+      "user_story": {
+        "role": "service operator",
+        "goal": "have the service safely create the events table on startup without destroying existing data",
+        "benefit": "rolling restarts and multi-instance deployments are safe"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "02-REQ-5.1",
+          "ears_pattern": "event_driven",
+          "system": "service",
+          "action": "executes the authoritative `CREATE TABLE IF NOT EXISTS events (...)` DDL statement to create the `events` table with the new 10-column schema if it does not already exist",
+          "return_contract": null,
+          "trigger": "startup is initiated"
+        },
+        {
+          "id": "02-REQ-5.2",
+          "ears_pattern": "ubiquitous",
+          "system": "service startup",
+          "action": "does not use DROP TABLE at any point; manual deletion of the database file is the supported migration path from the old schema",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "02-REQ-5.E1",
+          "ears_pattern": "unwanted",
+          "system": "service startup",
+          "action": "logs a fatal error and exits immediately; the service refuses to start without a valid `events` table",
+          "return_contract": "process exits with a non-zero exit code",
+          "error_condition": "the `CREATE TABLE IF NOT EXISTS` DDL statement fails (e.g. disk error or syntax error)"
+        },
+        {
+          "id": "02-REQ-5.E2",
+          "ears_pattern": "state_driven",
+          "system": "service startup",
+          "action": "continues to start normally because `CREATE TABLE IF NOT EXISTS` is a no-op when the table already exists; no conflict is raised",
+          "return_contract": null,
+          "state": "the `events` table already exists with the old three-column schema"
+        }
+      ]
+    },
+    {
+      "id": "02-REQ-6",
+      "title": "Duplicate event handling",
+      "user_story": {
+        "role": "service",
+        "goal": "silently ignore events whose `id` already exists in the `events` table",
+        "benefit": "prevents replay-based storage exhaustion while maintaining a consistent response to clients"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "02-REQ-6.1",
+          "ears_pattern": "event_driven",
+          "system": "`InsertEvent`",
+          "action": "executes `INSERT OR IGNORE INTO events (...)` which silently skips the insert, returns nil error, and causes the handler to return 201 Created with a zero-byte body",
+          "return_contract": "nil error from InsertEvent; HTTP 201, zero-byte body, no Content-Type header",
+          "trigger": "a validated event is submitted whose `id` already exists as a primary key in the `events` table"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "02-REQ-7",
+      "title": "InsertEvent function contract",
+      "user_story": {
+        "role": "developer",
+        "goal": "use a typed, stable function signature for inserting audit events into the database",
+        "benefit": "avoids positional argument confusion across 9 fields and keeps the signature stable as the schema evolves"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "02-REQ-7.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`InsertEvent`",
+          "action": "has the signature `func InsertEvent(ctx context.Context, db *sql.DB, event AuditEvent) error` and lives in the `db package`",
+          "return_contract": null
+        },
+        {
+          "id": "02-REQ-7.2",
+          "ears_pattern": "event_driven",
+          "system": "`InsertEvent`",
+          "action": "executes `INSERT OR IGNORE INTO events (...)` via a bare `db.ExecContext` call with all 9 event fields and a server-generated `received_at` timestamp; no explicit transaction wrapper is used",
+          "return_contract": "nil on success or on duplicate `id`; non-nil error only if the INSERT fails for a reason other than a primary key conflict",
+          "trigger": "called with a valid `AuditEvent`"
+        },
+        {
+          "id": "02-REQ-7.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`EventsHandler`",
+          "action": "accesses the `*sql.DB` handle via `h.DB` using the existing dependency injection pattern; no new injection mechanism is introduced",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "02-REQ-8",
+      "title": "Unchanged existing behaviours",
+      "user_story": {
+        "role": "service operator",
+        "goal": "ensure that all existing service behaviours unrelated to event validation and storage remain unchanged",
+        "benefit": "no regression in authentication, health checks, configuration, logging, or graceful shutdown"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "02-REQ-8.1",
+          "ears_pattern": "ubiquitous",
+          "system": "service",
+          "action": "preserves Bearer token authentication, Content-Type validation, empty body rejection (400), health check endpoints, environment variable configuration, structured JSON logging, and graceful shutdown on SIGTERM/SIGINT without modification",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "02-REQ-9",
+      "title": "Integration test coverage",
+      "user_story": {
+        "role": "developer",
+        "goal": "have integration tests that verify the new validation and storage behaviour end-to-end",
+        "benefit": "regressions in event ingestion are caught automatically"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "02-REQ-9.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`TestTS02_1`",
+          "action": "POSTs the canonical valid `AuditEvent` JSON, asserts HTTP 201 with a zero-byte body, queries the `events` table, and verifies all 9 event columns match the submitted values; asserts `received_at` is present and parseable as `RFC3339Nano` without asserting an exact value",
+          "return_contract": "HTTP 201, zero-byte body; database row with matching column values"
+        },
+        {
+          "id": "02-REQ-9.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`TestTS02_2`",
+          "action": "POSTs each of the three invalid payloads (missing `event_type`, array `payload`, empty `id`) as separate requests, asserts HTTP 201 with a zero-byte body for each, and verifies no rows are stored in the `events` table for any of them",
+          "return_contract": "HTTP 201, zero-byte body for each invalid payload; zero rows in `events` table"
+        },
+        {
+          "id": "02-REQ-9.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`TestTS02_3`",
+          "action": "POSTs the canonical valid `AuditEvent` twice with the same `id`, asserts HTTP 201 both times, and verifies exactly one row exists in the `events` table",
+          "return_contract": "HTTP 201 both times; exactly one row in `events` table"
+        },
+        {
+          "id": "02-REQ-9.4",
+          "ears_pattern": "ubiquitous",
+          "system": "`TestTS01_1`, `TestTS01_2`, `TestTS01_5`",
+          "action": "are updated to send the canonical valid `AuditEvent` JSON payload (with distinct `id` values as needed) instead of arbitrary JSON payloads",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    }
+  ],
+  "correctness_properties": [
+    {
+      "id": "02-PROP-1",
+      "title": "Silent rejection indistinguishability",
+      "for_any": "request to `POST /v1/events` with a non-empty body",
+      "invariant": "the HTTP response is always HTTP 201 Created with a zero-byte body and no Content-Type header, regardless of whether the event passed or failed validation and regardless of whether it was stored",
+      "validates": [
+        "02-REQ-3.1",
+        "02-REQ-2.E1",
+        "02-REQ-2.E2",
+        "02-REQ-2.E3"
+      ]
+    },
+    {
+      "id": "02-PROP-2",
+      "title": "No storage of invalid events",
+      "for_any": "event that fails any validation check (bad JSON, missing field, wrong type, empty required string, non-object `payload`)",
+      "invariant": "no row is inserted into the `events` table",
+      "validates": [
+        "02-REQ-2.1",
+        "02-REQ-2.2",
+        "02-REQ-2.3",
+        "02-REQ-2.E1",
+        "02-REQ-2.E2",
+        "02-REQ-2.E3"
+      ]
+    },
+    {
+      "id": "02-PROP-3",
+      "title": "Duplicate event idempotency",
+      "for_any": "valid `AuditEvent` with an `id` that already exists in the `events` table",
+      "invariant": "exactly one row with that `id` exists in the `events` table after any number of submissions",
+      "validates": [
+        "02-REQ-6.1",
+        "02-REQ-4.2"
+      ]
+    },
+    {
+      "id": "02-PROP-4",
+      "title": "Column completeness for stored events",
+      "for_any": "valid `AuditEvent` successfully stored in the `events` table",
+      "invariant": "all 10 columns (`id`, `timestamp`, `run_id`, `event_type`, `node_id`, `session_id`, `archetype`, `severity`, `payload`, `received_at`) are NOT NULL and match the submitted event fields, with `received_at` parseable as `RFC3339Nano`",
+      "validates": [
+        "02-REQ-4.1",
+        "02-REQ-4.3",
+        "02-REQ-4.4",
+        "02-REQ-9.1"
+      ]
+    },
+    {
+      "id": "02-PROP-5",
+      "title": "Forward compatibility with unknown fields",
+      "for_any": "valid `AuditEvent` JSON body that contains additional top-level fields beyond the 9 defined",
+      "invariant": "the event is accepted and stored; unknown fields are silently ignored and do not cause rejection",
+      "validates": [
+        "02-REQ-2.4",
+        "02-REQ-1.E1"
+      ]
+    },
+    {
+      "id": "02-PROP-6",
+      "title": "Service never starts without valid events table",
+      "for_any": "startup attempt where `CREATE TABLE IF NOT EXISTS events (...)` fails",
+      "invariant": "the service process exits with a non-zero exit code and never begins accepting requests",
+      "validates": [
+        "02-REQ-5.E1"
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "02-PATH-1",
+      "title": "Valid audit event accepted and stored",
+      "steps": [
+        {
+          "actor": "agent-fox client",
+          "action": "sends POST /v1/events with a valid JSON body containing all 9 required audit event fields, correct types, non-empty required strings, and a `payload` object"
+        },
+        {
+          "actor": "POST /v1/events handler",
+          "action": "authenticates the request via Bearer token and validates Content-Type is application/json"
+        },
+        {
+          "actor": "POST /v1/events handler",
+          "action": "performs single-pass `json.Unmarshal` of the body into an `AuditEvent` struct; unmarshal succeeds"
+        },
+        {
+          "actor": "POST /v1/events handler",
+          "action": "verifies that `id`, `timestamp`, `run_id`, `event_type`, and `severity` are non-empty strings; all pass"
+        },
+        {
+          "actor": "POST /v1/events handler",
+          "action": "inspects the first non-whitespace byte of the `payload` `json.RawMessage`; confirms it is `{`"
+        },
+        {
+          "actor": "POST /v1/events handler",
+          "action": "calls `InsertEvent` with the validated `AuditEvent`; `InsertEvent` executes `INSERT OR IGNORE INTO events (...)` via `db.ExecContext` with all 9 fields and a server-generated `received_at` timestamp"
+        },
+        {
+          "actor": "POST /v1/events handler",
+          "action": "returns HTTP 201 Created with a zero-byte body and no Content-Type header via `c.NoContent`"
+        }
+      ]
+    },
+    {
+      "id": "02-PATH-2",
+      "title": "Invalid audit event silently rejected",
+      "steps": [
+        {
+          "actor": "agent-fox client",
+          "action": "sends POST /v1/events with a non-empty body that fails audit event validation (e.g. missing `event_type`, array `payload`, or empty `id`)"
+        },
+        {
+          "actor": "POST /v1/events handler",
+          "action": "authenticates the request via Bearer token and validates Content-Type"
+        },
+        {
+          "actor": "POST /v1/events handler",
+          "action": "attempts `json.Unmarshal` into an `AuditEvent` struct; either unmarshal fails or a subsequent non-empty string check or `payload` first-byte check fails"
+        },
+        {
+          "actor": "POST /v1/events handler",
+          "action": "silently rejects the event: does not call `InsertEvent`, does not log an error, and returns HTTP 201 Created with a zero-byte body and no Content-Type header via `c.NoContent`"
+        }
+      ]
+    },
+    {
+      "id": "02-PATH-3",
+      "title": "Duplicate event silently ignored",
+      "steps": [
+        {
+          "actor": "agent-fox client",
+          "action": "sends POST /v1/events twice with the same valid canonical `AuditEvent` payload (same `id`)"
+        },
+        {
+          "actor": "POST /v1/events handler",
+          "action": "validates and accepts both requests; calls `InsertEvent` for each"
+        },
+        {
+          "actor": "`InsertEvent`",
+          "action": "on the first call, executes `INSERT OR IGNORE INTO events (...)` successfully and stores the row"
+        },
+        {
+          "actor": "`InsertEvent`",
+          "action": "on the second call, executes `INSERT OR IGNORE INTO events (...)` which is a no-op due to primary key conflict; returns nil error"
+        },
+        {
+          "actor": "POST /v1/events handler",
+          "action": "returns HTTP 201 Created with a zero-byte body and no Content-Type header for both requests"
+        }
+      ]
+    },
+    {
+      "id": "02-PATH-4",
+      "title": "Service startup with schema creation",
+      "steps": [
+        {
+          "actor": "service",
+          "action": "starts up and opens the SQLite database connection"
+        },
+        {
+          "actor": "service",
+          "action": "executes `CREATE TABLE IF NOT EXISTS events (...)` DDL with the new 10-column schema"
+        },
+        {
+          "actor": "service",
+          "action": "if DDL succeeds, continues startup and begins serving requests on POST /v1/events"
+        }
+      ]
+    },
+    {
+      "id": "02-PATH-5",
+      "title": "Service startup fails due to DDL error",
+      "steps": [
+        {
+          "actor": "service",
+          "action": "starts up and attempts to execute `CREATE TABLE IF NOT EXISTS events (...)` DDL"
+        },
+        {
+          "actor": "service",
+          "action": "DDL statement fails due to a disk error or other database error"
+        },
+        {
+          "actor": "service",
+          "action": "logs a fatal error message and exits with a non-zero exit code; does not begin serving requests"
+        }
+      ]
+    }
+  ],
+  "error_handling": [
+    {
+      "id": "02-ERR-1",
+      "condition": "`json.Unmarshal` returns an error when parsing the request body into `AuditEvent` (malformed JSON, top-level array, scalar, or null)",
+      "behavior": "Handler silently rejects the event; returns HTTP 201 Created with zero-byte body and no Content-Type header via `c.NoContent`; does not store the event; does not log an error",
+      "requirement_id": "02-REQ-2.E1"
+    },
+    {
+      "id": "02-ERR-2",
+      "condition": "One or more required non-empty string fields (`id`, `timestamp`, `run_id`, `event_type`, `severity`) are empty strings after successful unmarshal",
+      "behavior": "Handler silently rejects the event; returns HTTP 201 Created with zero-byte body and no Content-Type header via `c.NoContent`; does not store the event",
+      "requirement_id": "02-REQ-2.E2"
+    },
+    {
+      "id": "02-ERR-3",
+      "condition": "The first non-whitespace byte of the `payload` `json.RawMessage` is not `{` (e.g. `[`, `n`, `\"`, or a digit)",
+      "behavior": "Handler silently rejects the event; returns HTTP 201 Created with zero-byte body and no Content-Type header via `c.NoContent`; does not store the event",
+      "requirement_id": "02-REQ-2.E3"
+    },
+    {
+      "id": "02-ERR-4",
+      "condition": "The request body is empty",
+      "behavior": "Existing middleware returns HTTP 400 Bad Request; behaviour is unchanged by this spec",
+      "requirement_id": "02-REQ-2.E4"
+    },
+    {
+      "id": "02-ERR-5",
+      "condition": "`CREATE TABLE IF NOT EXISTS events (...)` DDL fails on service startup (e.g. disk error)",
+      "behavior": "Service logs a fatal error and exits immediately with a non-zero exit code; does not begin serving requests",
+      "requirement_id": "02-REQ-5.E1"
+    },
+    {
+      "id": "02-ERR-6",
+      "condition": "`InsertEvent` is called with an event whose `id` already exists in the `events` table",
+      "behavior": "`INSERT OR IGNORE` silently skips the insert; `InsertEvent` returns nil; handler returns HTTP 201 Created with zero-byte body",
+      "requirement_id": "02-REQ-6.1"
+    },
+    {
+      "id": "02-ERR-7",
+      "condition": "`InsertEvent` is called and the INSERT fails for a reason other than a primary key conflict (e.g. database write error)",
+      "behavior": "`InsertEvent` returns a non-nil error; handler should propagate the error appropriately",
+      "requirement_id": "02-REQ-7.2"
+    }
+  ]
+}

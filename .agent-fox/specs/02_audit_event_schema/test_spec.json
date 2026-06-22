@@ -1,0 +1,621 @@
+{
+  "$schema": null,
+  "spec_id": "02",
+  "spec_name": "audit_event_schema",
+  "schema_version": 1,
+  "test_cases": [
+    {
+      "id": "TS-02-1",
+      "requirement_id": "02-REQ-1.1",
+      "kind": "unit",
+      "description": "Verify that the AuditEvent struct defines exactly 9 top-level fields with correct Go types and JSON struct tags.",
+      "preconditions": [
+        "The `db` package at `internal/db` compiles successfully.",
+        "The `AuditEvent` struct is defined in `internal/db/events.go`."
+      ],
+      "input": "Inspect the AuditEvent struct definition via reflection or direct compilation check.",
+      "expected": "The struct has exactly 9 exported fields: ID (string, json:\"id\"), Timestamp (string, json:\"timestamp\"), RunID (string, json:\"run_id\"), EventType (string, json:\"event_type\"), NodeID (string, json:\"node_id\"), SessionID (string, json:\"session_id\"), Archetype (string, json:\"archetype\"), Severity (string, json:\"severity\"), Payload (json.RawMessage, json:\"payload\").",
+      "assertion_pseudocode": "type_of_AuditEvent = reflect(db.AuditEvent); assert field_count(type_of_AuditEvent) == 9; assert field_type(type_of_AuditEvent, \"ID\") == string; assert json_tag(type_of_AuditEvent, \"ID\") == \"id\"; assert field_type(type_of_AuditEvent, \"Payload\") == json.RawMessage; assert json_tag(type_of_AuditEvent, \"Payload\") == \"payload\""
+    },
+    {
+      "id": "TS-02-2",
+      "requirement_id": "02-REQ-1.2",
+      "kind": "unit",
+      "description": "Verify that the Payload field of AuditEvent is declared as json.RawMessage to preserve raw JSON bytes during unmarshalling.",
+      "preconditions": [
+        "The `db` package at `internal/db` compiles successfully.",
+        "The `AuditEvent` struct is defined in `internal/db/events.go`."
+      ],
+      "input": "Unmarshal JSON `{\"id\":\"abc\",\"timestamp\":\"t\",\"run_id\":\"r\",\"event_type\":\"e\",\"node_id\":\"\",\"session_id\":\"\",\"archetype\":\"\",\"severity\":\"info\",\"payload\":{\"k\":\"v\"}}` into AuditEvent.",
+      "expected": "The Payload field contains the raw bytes `{\"k\":\"v\"}` without further parsing; the Go type of Payload is json.RawMessage ([]byte).",
+      "assertion_pseudocode": "event = AuditEvent{}; json_unmarshal(body, &event); assert typeof(event.Payload) == json.RawMessage; assert string(event.Payload) == \"{\\\"k\\\":\\\"v\\\"}\" OR equivalent raw bytes"
+    },
+    {
+      "id": "TS-02-3",
+      "requirement_id": "02-REQ-1.3",
+      "kind": "unit",
+      "description": "Verify that the AuditEvent struct resides in the db package (internal/db) and its JSON tags allow json.Unmarshal to be used directly by both handler and db package.",
+      "preconditions": [
+        "Source file `internal/db/events.go` exists and declares the AuditEvent struct.",
+        "Source file `internal/handler/events.go` imports `internal/db`."
+      ],
+      "input": "Compile the project; verify package declaration and import paths.",
+      "expected": "AuditEvent is declared in package `db` (internal/db/events.go); the handler imports and uses `db.AuditEvent` directly for json.Unmarshal; no separate DTO struct exists for audit events.",
+      "assertion_pseudocode": "assert package_of(db.AuditEvent) == \"db\"; assert handler_imports_contains(\"internal/db\"); json_unmarshal(canonical_body, &db.AuditEvent{}) returns no error"
+    },
+    {
+      "id": "TS-02-4",
+      "requirement_id": "02-REQ-2.1",
+      "kind": "integration",
+      "description": "Verify that the POST /v1/events handler performs a single-pass json.Unmarshal of the body into AuditEvent, accepting a valid JSON object with all 9 fields.",
+      "preconditions": [
+        "Service is running with a valid SQLite database initialised using the new 10-column events table schema.",
+        "Valid Bearer token is configured and used in the request.",
+        "Content-Type header is set to application/json."
+      ],
+      "input": "POST /v1/events with the canonical valid AuditEvent JSON body: {\"id\":\"7c10ec9b-daaf-4146-8e40-6efc92e5db39\",\"timestamp\":\"2026-06-18T11:26:26.527713+00:00\",\"run_id\":\"20260618_112626_17dd3f\",\"event_type\":\"run.start\",\"node_id\":\"\",\"session_id\":\"\",\"archetype\":\"\",\"severity\":\"info\",\"payload\":{\"plan_hash\":\"abc123\"}}",
+      "expected": "HTTP 201 Created with zero-byte body and no Content-Type header; one row inserted in the events table.",
+      "assertion_pseudocode": "resp = POST(\"/v1/events\", canonical_valid_body, auth_header); assert resp.status_code == 201; assert len(resp.body) == 0; assert resp.headers[\"Content-Type\"] == \"\"; row = db_query(\"SELECT COUNT(*) FROM events WHERE id='7c10ec9b-daaf-4146-8e40-6efc92e5db39'\"); assert row.count == 1"
+    },
+    {
+      "id": "TS-02-5",
+      "requirement_id": "02-REQ-2.2",
+      "kind": "integration",
+      "description": "Verify that the handler checks non-empty constraints on id, timestamp, run_id, event_type, and severity, while accepting empty strings for node_id, session_id, and archetype.",
+      "preconditions": [
+        "Service is running with initialised events table.",
+        "Valid Bearer token and Content-Type: application/json are used."
+      ],
+      "input": "POST /v1/events with the canonical valid AuditEvent JSON where node_id, session_id, and archetype are all empty strings.",
+      "expected": "HTTP 201 Created; one row stored with node_id='', session_id='', archetype='' in the database.",
+      "assertion_pseudocode": "resp = POST(\"/v1/events\", body_with_empty_optional_strings, auth_header); assert resp.status_code == 201; assert len(resp.body) == 0; row = db_query(\"SELECT node_id, session_id, archetype FROM events WHERE id=?\", event_id); assert row.node_id == \"\"; assert row.session_id == \"\"; assert row.archetype == \"\""
+    },
+    {
+      "id": "TS-02-6",
+      "requirement_id": "02-REQ-2.3",
+      "kind": "integration",
+      "description": "Verify that the handler checks that the first non-whitespace byte of payload json.RawMessage is '{', rejecting payload arrays.",
+      "preconditions": [
+        "Service is running with initialised events table.",
+        "Valid Bearer token and Content-Type: application/json are used.",
+        "events table is empty before the test."
+      ],
+      "input": "POST /v1/events with a valid JSON body where payload is an array: {\"id\":\"x\",\"timestamp\":\"t\",\"run_id\":\"r\",\"event_type\":\"e\",\"node_id\":\"\",\"session_id\":\"\",\"archetype\":\"\",\"severity\":\"info\",\"payload\":[\"not\",\"an\",\"object\"]}",
+      "expected": "HTTP 201 Created with zero-byte body; no row inserted in the events table.",
+      "assertion_pseudocode": "resp = POST(\"/v1/events\", body_with_array_payload, auth_header); assert resp.status_code == 201; assert len(resp.body) == 0; count = db_query(\"SELECT COUNT(*) FROM events\").count; assert count == 0"
+    },
+    {
+      "id": "TS-02-7",
+      "requirement_id": "02-REQ-2.4",
+      "kind": "integration",
+      "description": "Verify that unknown extra top-level fields in the JSON body are silently ignored and the event is still accepted and stored.",
+      "preconditions": [
+        "Service is running with initialised events table.",
+        "Valid Bearer token and Content-Type: application/json are used.",
+        "events table is empty before the test."
+      ],
+      "input": "POST /v1/events with the canonical valid AuditEvent JSON body plus an extra field: {\"id\":\"abc\",\"timestamp\":\"t\",\"run_id\":\"r\",\"event_type\":\"e\",\"node_id\":\"\",\"session_id\":\"\",\"archetype\":\"\",\"severity\":\"info\",\"payload\":{},\"extra_field\":\"ignored\"}",
+      "expected": "HTTP 201 Created; one row stored in events table; no error or rejection due to the extra field.",
+      "assertion_pseudocode": "resp = POST(\"/v1/events\", body_with_extra_field, auth_header); assert resp.status_code == 201; assert len(resp.body) == 0; count = db_query(\"SELECT COUNT(*) FROM events WHERE id='abc'\").count; assert count == 1"
+    },
+    {
+      "id": "TS-02-8",
+      "requirement_id": "02-REQ-3.1",
+      "kind": "integration",
+      "description": "Verify that POST /v1/events returns HTTP 201 with a zero-byte body and no Content-Type header for both valid and invalid (non-empty) event payloads.",
+      "preconditions": [
+        "Service is running with initialised events table.",
+        "Valid Bearer token and Content-Type: application/json are used."
+      ],
+      "input": "Two requests: (1) canonical valid AuditEvent JSON, (2) invalid JSON body {\"bad\":\"event\"} missing all required fields.",
+      "expected": "Both responses return HTTP 201 with zero-byte body and no Content-Type header.",
+      "assertion_pseudocode": "for body in [valid_body, invalid_body]: resp = POST(\"/v1/events\", body, auth_header); assert resp.status_code == 201; assert len(resp.body) == 0; assert resp.headers.get(\"Content-Type\") == None OR \"\""
+    },
+    {
+      "id": "TS-02-9",
+      "requirement_id": "02-REQ-4.1",
+      "kind": "unit",
+      "description": "Verify that the events table schema has exactly 10 columns with the correct names, types, and constraints as defined in the DDL.",
+      "preconditions": [
+        "A fresh SQLite database is initialised by calling the startup DDL from `internal/db/db.go`."
+      ],
+      "input": "Execute `PRAGMA table_info(events)` on the initialised database.",
+      "expected": "Exactly 10 columns returned: id (TEXT, PRIMARY KEY), timestamp (TEXT, NOT NULL), run_id (TEXT, NOT NULL), event_type (TEXT, NOT NULL), node_id (TEXT, NOT NULL), session_id (TEXT, NOT NULL), archetype (TEXT, NOT NULL), severity (TEXT, NOT NULL), payload (TEXT, NOT NULL), received_at (DATETIME, NOT NULL). No ROWID, STRICT, or index options.",
+      "assertion_pseudocode": "rows = db_exec(\"PRAGMA table_info(events)\"); assert len(rows) == 10; columns = {row.name: row for row in rows}; assert columns[\"id\"].pk == 1; assert columns[\"timestamp\"].notnull == 1; assert columns[\"run_id\"].notnull == 1; assert columns[\"event_type\"].notnull == 1; assert columns[\"received_at\"].type == \"DATETIME\"; assert columns[\"received_at\"].notnull == 1"
+    },
+    {
+      "id": "TS-02-10",
+      "requirement_id": "02-REQ-4.2",
+      "kind": "integration",
+      "description": "Verify that the event's own id field is used as the primary key in the events table, and no server-side UUID is generated.",
+      "preconditions": [
+        "Service is running with initialised events table.",
+        "Valid Bearer token and Content-Type: application/json are used.",
+        "events table is empty before the test."
+      ],
+      "input": "POST /v1/events with canonical valid AuditEvent JSON with id '7c10ec9b-daaf-4146-8e40-6efc92e5db39'.",
+      "expected": "The events table contains exactly one row where id = '7c10ec9b-daaf-4146-8e40-6efc92e5db39', matching the submitted event's id field.",
+      "assertion_pseudocode": "resp = POST(\"/v1/events\", canonical_body, auth_header); assert resp.status_code == 201; row = db_query(\"SELECT id FROM events WHERE id='7c10ec9b-daaf-4146-8e40-6efc92e5db39'\"); assert row != nil; assert row.id == \"7c10ec9b-daaf-4146-8e40-6efc92e5db39\""
+    },
+    {
+      "id": "TS-02-11",
+      "requirement_id": "02-REQ-4.3",
+      "kind": "integration",
+      "description": "Verify that the payload column stores re-serialized JSON text produced by json.Marshal on the parsed json.RawMessage, not a verbatim copy of the request bytes.",
+      "preconditions": [
+        "Service is running with initialised events table.",
+        "Valid Bearer token and Content-Type: application/json are used.",
+        "events table is empty before the test."
+      ],
+      "input": "POST /v1/events with canonical valid AuditEvent JSON where payload is {\"plan_hash\":\"abc123\"}.",
+      "expected": "The payload column in the events table contains a valid JSON string representing {\"plan_hash\":\"abc123\"} (parseable as JSON, semantically equivalent); exact byte order is not asserted.",
+      "assertion_pseudocode": "resp = POST(\"/v1/events\", canonical_body, auth_header); row = db_query(\"SELECT payload FROM events WHERE id=?\", event_id); parsed = json_parse(row.payload); assert parsed[\"plan_hash\"] == \"abc123\""
+    },
+    {
+      "id": "TS-02-12",
+      "requirement_id": "02-REQ-4.4",
+      "kind": "integration",
+      "description": "Verify that received_at is stored as a server-generated UTC timestamp formatted with time.RFC3339Nano.",
+      "preconditions": [
+        "Service is running with initialised events table.",
+        "Valid Bearer token and Content-Type: application/json are used.",
+        "events table is empty before the test."
+      ],
+      "input": "POST /v1/events with canonical valid AuditEvent JSON.",
+      "expected": "The received_at column contains a non-empty string parseable as RFC3339Nano (e.g. '2026-06-18T11:26:26.123456789Z'); the parsed time is a UTC timestamp close to the time of insertion.",
+      "assertion_pseudocode": "resp = POST(\"/v1/events\", canonical_body, auth_header); row = db_query(\"SELECT received_at FROM events WHERE id=?\", event_id); assert row.received_at != \"\"; parsed_time = time_parse(time.RFC3339Nano, row.received_at); assert parsed_time.error == nil; assert parsed_time.location == UTC"
+    },
+    {
+      "id": "TS-02-13",
+      "requirement_id": "02-REQ-5.1",
+      "kind": "unit",
+      "description": "Verify that on startup the service executes CREATE TABLE IF NOT EXISTS events with the new 10-column schema.",
+      "preconditions": [
+        "A fresh (empty) SQLite database file is provided.",
+        "`internal/db/db.go` InitDB function (or equivalent startup function) is called."
+      ],
+      "input": "Call the DB initialization function from `internal/db/db.go` on an empty SQLite database.",
+      "expected": "The events table is created with 10 columns as per the authoritative DDL; PRAGMA table_info(events) returns 10 rows.",
+      "assertion_pseudocode": "db = open_sqlite(empty_db_path); init_db(db); rows = db_exec(\"PRAGMA table_info(events)\"); assert len(rows) == 10"
+    },
+    {
+      "id": "TS-02-14",
+      "requirement_id": "02-REQ-5.2",
+      "kind": "unit",
+      "description": "Verify that the startup DDL does not contain any DROP TABLE statement.",
+      "preconditions": [
+        "Source file `internal/db/db.go` is accessible."
+      ],
+      "input": "Read the source of `internal/db/db.go` and search for DROP TABLE.",
+      "expected": "No occurrence of DROP TABLE (case-insensitive) exists anywhere in `internal/db/db.go`.",
+      "assertion_pseudocode": "source = read_file(\"internal/db/db.go\"); assert \"DROP TABLE\" not in source.to_upper_case()"
+    },
+    {
+      "id": "TS-02-15",
+      "requirement_id": "02-REQ-6.1",
+      "kind": "integration",
+      "description": "Verify that submitting a valid event with a duplicate id is silently ignored: InsertEvent returns nil, and the handler returns 201 Created with a zero-byte body.",
+      "preconditions": [
+        "Service is running with initialised events table.",
+        "Valid Bearer token and Content-Type: application/json are used.",
+        "The canonical valid AuditEvent has already been successfully inserted once."
+      ],
+      "input": "POST /v1/events with the same canonical valid AuditEvent JSON a second time (same id).",
+      "expected": "HTTP 201 Created with zero-byte body and no Content-Type header; exactly one row with that id remains in the events table.",
+      "assertion_pseudocode": "POST(\"/v1/events\", canonical_body, auth_header); resp2 = POST(\"/v1/events\", canonical_body, auth_header); assert resp2.status_code == 201; assert len(resp2.body) == 0; count = db_query(\"SELECT COUNT(*) FROM events WHERE id=?\", event_id).count; assert count == 1"
+    },
+    {
+      "id": "TS-02-16",
+      "requirement_id": "02-REQ-7.1",
+      "kind": "unit",
+      "description": "Verify that InsertEvent has the correct function signature: func InsertEvent(ctx context.Context, db *sql.DB, event AuditEvent) error in the db package.",
+      "preconditions": [
+        "Source file `internal/db/events.go` compiles successfully."
+      ],
+      "input": "Inspect the function signature of InsertEvent in `internal/db/events.go`.",
+      "expected": "The function is exported as InsertEvent, accepts (ctx context.Context, db *sql.DB, event AuditEvent), and returns a single error value.",
+      "assertion_pseudocode": "assert function_signature(db.InsertEvent) == \"func(context.Context, *sql.DB, db.AuditEvent) error\"; assert package_of(db.InsertEvent) == \"db\""
+    },
+    {
+      "id": "TS-02-17",
+      "requirement_id": "02-REQ-7.2",
+      "kind": "unit",
+      "description": "Verify that InsertEvent executes INSERT OR IGNORE INTO events with all 9 event fields and a server-generated received_at timestamp using a bare db.ExecContext call.",
+      "preconditions": [
+        "A fresh SQLite database with the 10-column events table schema is initialised.",
+        "A valid AuditEvent struct is constructed in memory."
+      ],
+      "input": "Call InsertEvent(ctx, db, validAuditEvent) directly.",
+      "expected": "Returns nil error; the events table contains one row with all 9 event columns matching the input struct and received_at set to a recent UTC RFC3339Nano timestamp.",
+      "assertion_pseudocode": "event = AuditEvent{ID:\"test-id\", Timestamp:\"t\", RunID:\"r\", EventType:\"e\", NodeID:\"\", SessionID:\"\", Archetype:\"\", Severity:\"info\", Payload:json_raw(\"{}\") }; err = db.InsertEvent(ctx, sqldb, event); assert err == nil; row = db_query(\"SELECT * FROM events WHERE id='test-id'\"); assert row.event_type == \"e\"; assert row.severity == \"info\"; parsed_time = time_parse(time.RFC3339Nano, row.received_at); assert parsed_time.error == nil"
+    },
+    {
+      "id": "TS-02-18",
+      "requirement_id": "02-REQ-7.3",
+      "kind": "unit",
+      "description": "Verify that the EventsHandler accesses the database via h.DB using the existing struct injection pattern, with no new injection mechanism.",
+      "preconditions": [
+        "Source file `internal/handler/events.go` compiles successfully."
+      ],
+      "input": "Inspect the EventsHandler struct definition and handler method for h.DB usage.",
+      "expected": "EventsHandler struct has a DB *sql.DB field; the handler method uses h.DB to call InsertEvent; no new injection mechanism (e.g. context injection or global variable) is introduced.",
+      "assertion_pseudocode": "assert field_exists(handler.EventsHandler, \"DB\", \"*sql.DB\"); assert handler_method_uses(\"h.DB\"); assert no_new_injection_mechanism_in(\"internal/handler/events.go\")"
+    },
+    {
+      "id": "TS-02-19",
+      "requirement_id": "02-REQ-8.1",
+      "kind": "integration",
+      "description": "Verify that existing behaviours (Bearer auth, Content-Type validation, empty body 400, health checks, graceful shutdown) remain unchanged after the schema enforcement changes.",
+      "preconditions": [
+        "Service is running with the updated code and 10-column events table.",
+        "Both valid and invalid auth tokens are available for testing."
+      ],
+      "input": "Multiple requests: (1) POST /v1/events with no auth token, (2) POST /v1/events with wrong Content-Type, (3) POST /v1/events with empty body, (4) GET /healthz, (5) GET /readyz.",
+      "expected": "(1) 401 Unauthorized, (2) 415 or equivalent Content-Type error, (3) 400 Bad Request, (4) 200 OK for healthz, (5) 200 OK for readyz.",
+      "assertion_pseudocode": "assert POST(\"/v1/events\", body, no_auth).status == 401; assert POST(\"/v1/events\", body, wrong_content_type).status in [400, 415]; assert POST(\"/v1/events\", empty_body, auth).status == 400; assert GET(\"/healthz\").status == 200; assert GET(\"/readyz\").status == 200"
+    },
+    {
+      "id": "TS-02-20",
+      "requirement_id": "02-REQ-9.1",
+      "kind": "integration",
+      "description": "TestTS02_1: POST canonical valid AuditEvent, assert 201 with zero-byte body, query DB and verify all 9 event columns match; assert received_at is parseable as RFC3339Nano.",
+      "preconditions": [
+        "Service is running with initialised 10-column events table (empty before test).",
+        "Valid Bearer token and Content-Type: application/json are used."
+      ],
+      "input": "POST /v1/events with canonical valid AuditEvent: {\"id\":\"7c10ec9b-daaf-4146-8e40-6efc92e5db39\",\"timestamp\":\"2026-06-18T11:26:26.527713+00:00\",\"run_id\":\"20260618_112626_17dd3f\",\"event_type\":\"run.start\",\"node_id\":\"\",\"session_id\":\"\",\"archetype\":\"\",\"severity\":\"info\",\"payload\":{\"plan_hash\":\"abc123\"}}",
+      "expected": "HTTP 201 with zero-byte body and no Content-Type header; DB row has id='7c10ec9b-daaf-4146-8e40-6efc92e5db39', timestamp='2026-06-18T11:26:26.527713+00:00', run_id='20260618_112626_17dd3f', event_type='run.start', node_id='', session_id='', archetype='', severity='info', payload parseable as JSON with plan_hash='abc123', received_at parseable as RFC3339Nano.",
+      "assertion_pseudocode": "resp = POST(\"/v1/events\", canonical_body, auth_header); assert resp.status_code == 201; assert len(resp.body) == 0; assert resp.headers.get(\"Content-Type\") == None; row = db_query(\"SELECT * FROM events WHERE id='7c10ec9b-daaf-4146-8e40-6efc92e5db39'\"); assert row.timestamp == \"2026-06-18T11:26:26.527713+00:00\"; assert row.run_id == \"20260618_112626_17dd3f\"; assert row.event_type == \"run.start\"; assert row.node_id == \"\"; assert row.session_id == \"\"; assert row.archetype == \"\"; assert row.severity == \"info\"; assert json_parse(row.payload)[\"plan_hash\"] == \"abc123\"; assert time_parse(RFC3339Nano, row.received_at).error == nil"
+    },
+    {
+      "id": "TS-02-21",
+      "requirement_id": "02-REQ-9.2",
+      "kind": "integration",
+      "description": "TestTS02_2: POST three invalid payloads (missing event_type, array payload, empty id); assert 201 for each and verify no rows stored.",
+      "preconditions": [
+        "Service is running with initialised 10-column events table (empty before test).",
+        "Valid Bearer token and Content-Type: application/json are used."
+      ],
+      "input": "Three separate POST /v1/events requests: (a) missing event_type field, (b) payload is an array [\"not\",\"an\",\"object\"], (c) id is an empty string \"\".",
+      "expected": "All three responses return HTTP 201 with zero-byte body; events table remains empty (0 rows) after all three requests.",
+      "assertion_pseudocode": "for body in [body_missing_event_type, body_array_payload, body_empty_id]: resp = POST(\"/v1/events\", body, auth_header); assert resp.status_code == 201; assert len(resp.body) == 0; count = db_query(\"SELECT COUNT(*) FROM events\").count; assert count == 0"
+    },
+    {
+      "id": "TS-02-22",
+      "requirement_id": "02-REQ-9.3",
+      "kind": "integration",
+      "description": "TestTS02_3: POST canonical valid AuditEvent twice with the same id; assert 201 both times and verify exactly one row in the DB.",
+      "preconditions": [
+        "Service is running with initialised 10-column events table (empty before test).",
+        "Valid Bearer token and Content-Type: application/json are used."
+      ],
+      "input": "POST /v1/events twice with identical canonical valid AuditEvent JSON (same id '7c10ec9b-daaf-4146-8e40-6efc92e5db39').",
+      "expected": "Both responses return HTTP 201 with zero-byte body; exactly one row with id='7c10ec9b-daaf-4146-8e40-6efc92e5db39' exists in the events table.",
+      "assertion_pseudocode": "resp1 = POST(\"/v1/events\", canonical_body, auth_header); assert resp1.status_code == 201; resp2 = POST(\"/v1/events\", canonical_body, auth_header); assert resp2.status_code == 201; count = db_query(\"SELECT COUNT(*) FROM events WHERE id='7c10ec9b-daaf-4146-8e40-6efc92e5db39'\").count; assert count == 1"
+    },
+    {
+      "id": "TS-02-23",
+      "requirement_id": "02-REQ-9.4",
+      "kind": "integration",
+      "description": "Verify that TestTS01_1, TestTS01_2, and TestTS01_5 in internal/integration/events_test.go are updated to send the canonical valid AuditEvent JSON payload with distinct id values.",
+      "preconditions": [
+        "Source file `internal/integration/events_test.go` is accessible.",
+        "Service is running with initialised 10-column events table."
+      ],
+      "input": "Inspect and run TestTS01_1, TestTS01_2, TestTS01_5 with the canonical valid AuditEvent payloads.",
+      "expected": "Each test sends a valid AuditEvent JSON body (all 9 required fields, correct types, non-empty required strings, object payload) and receives HTTP 201; distinct id values are used across the three tests.",
+      "assertion_pseudocode": "for test_name in [\"TestTS01_1\", \"TestTS01_2\", \"TestTS01_5\"]: run_test(test_name); verify_payload_is_canonical_audit_event(test_name); ids = [get_id_from_payload(t) for t in tests]; assert len(set(ids)) == len(ids)"
+    }
+  ],
+  "property_tests": [
+    {
+      "id": "TS-02-P1",
+      "property_id": "02-PROP-1",
+      "validates": [
+        "02-REQ-3.1",
+        "02-REQ-2.E1",
+        "02-REQ-2.E2",
+        "02-REQ-2.E3"
+      ],
+      "description": "For any non-empty POST /v1/events body (valid, invalid, or arbitrary), the HTTP response is always 201 Created with a zero-byte body and no Content-Type header.",
+      "for_any_strategy": "Generate arbitrary non-empty byte slices as request bodies, including: valid canonical AuditEvent JSON, JSON missing required fields, JSON with wrong types, JSON arrays, JSON scalars, malformed JSON, and random byte sequences.",
+      "invariant_check": "FOR ALL non_empty_body: resp = POST(\"/v1/events\", non_empty_body, valid_auth_header, content_type_json); ASSERT resp.status_code == 201 AND len(resp.body) == 0 AND resp.headers.get(\"Content-Type\") == None"
+    },
+    {
+      "id": "TS-02-P2",
+      "property_id": "02-PROP-2",
+      "validates": [
+        "02-REQ-2.1",
+        "02-REQ-2.2",
+        "02-REQ-2.3",
+        "02-REQ-2.E1",
+        "02-REQ-2.E2",
+        "02-REQ-2.E3"
+      ],
+      "description": "For any event that fails validation (bad JSON, missing required field, empty required string, wrong type, non-object payload), no row is inserted into the events table.",
+      "for_any_strategy": "Generate invalid AuditEvent bodies by: omitting each of the 9 required fields one at a time, setting each non-empty required string field to empty, setting payload to array/null/string/number, sending malformed JSON, sending JSON arrays/scalars at top level.",
+      "invariant_check": "FOR ALL invalid_body: count_before = db_query(\"SELECT COUNT(*) FROM events\").count; POST(\"/v1/events\", invalid_body, auth); count_after = db_query(\"SELECT COUNT(*) FROM events\").count; ASSERT count_after == count_before"
+    },
+    {
+      "id": "TS-02-P3",
+      "property_id": "02-PROP-3",
+      "validates": [
+        "02-REQ-6.1",
+        "02-REQ-4.2"
+      ],
+      "description": "For any valid AuditEvent submitted N times with the same id, exactly one row with that id exists in the events table after all N submissions.",
+      "for_any_strategy": "Generate valid AuditEvent structs with a fixed id; submit them N times (N in range 1..10) via POST /v1/events.",
+      "invariant_check": "FOR ALL valid_event, N in 1..10: FOR i in 1..N: POST(\"/v1/events\", valid_event_body, auth); count = db_query(\"SELECT COUNT(*) FROM events WHERE id=?\", valid_event.id).count; ASSERT count == 1"
+    },
+    {
+      "id": "TS-02-P4",
+      "property_id": "02-PROP-4",
+      "validates": [
+        "02-REQ-4.1",
+        "02-REQ-4.3",
+        "02-REQ-4.4",
+        "02-REQ-9.1"
+      ],
+      "description": "For any valid AuditEvent successfully stored, all 10 columns are NOT NULL and match the submitted event values, with received_at parseable as RFC3339Nano.",
+      "for_any_strategy": "Generate valid AuditEvent structs with varied field values (non-empty id, timestamp, run_id, event_type, severity; any string for node_id/session_id/archetype; any valid JSON object for payload).",
+      "invariant_check": "FOR ALL valid_event: POST(\"/v1/events\", valid_event_body, auth); row = db_query(\"SELECT * FROM events WHERE id=?\", valid_event.id); ASSERT row.id == valid_event.id AND row.timestamp == valid_event.timestamp AND row.run_id == valid_event.run_id AND row.event_type == valid_event.event_type AND row.node_id == valid_event.node_id AND row.session_id == valid_event.session_id AND row.archetype == valid_event.archetype AND row.severity == valid_event.severity AND json_parse(row.payload) semantically_equals json_parse(valid_event.payload) AND time_parse(RFC3339Nano, row.received_at).error == nil AND row.received_at != NULL"
+    },
+    {
+      "id": "TS-02-P5",
+      "property_id": "02-PROP-5",
+      "validates": [
+        "02-REQ-2.4",
+        "02-REQ-1.E1"
+      ],
+      "description": "For any valid AuditEvent JSON body containing additional unknown top-level fields beyond the 9 defined, the event is accepted and stored; unknown fields do not cause rejection.",
+      "for_any_strategy": "Generate valid canonical AuditEvent JSON bodies augmented with 1-5 additional top-level fields of arbitrary names and values (strings, numbers, booleans, arrays, objects).",
+      "invariant_check": "FOR ALL valid_event_with_extra_fields: count_before = db_query(\"SELECT COUNT(*) FROM events\").count; resp = POST(\"/v1/events\", body, auth); ASSERT resp.status_code == 201; count_after = db_query(\"SELECT COUNT(*) FROM events\").count; ASSERT count_after == count_before + 1"
+    },
+    {
+      "id": "TS-02-P6",
+      "property_id": "02-PROP-6",
+      "validates": [
+        "02-REQ-5.E1"
+      ],
+      "description": "For any startup attempt where the CREATE TABLE IF NOT EXISTS DDL fails, the service process exits with a non-zero code and never begins accepting requests.",
+      "for_any_strategy": "Simulate DDL failures by providing database handles configured to return errors on exec (read-only DB, corrupted DB, disk-full simulation).",
+      "invariant_check": "FOR ALL failing_db_handle: assert process_exits_nonzero( func() { init_db(failing_db_handle) } ) AND assert no_http_server_started()"
+    }
+  ],
+  "edge_case_tests": [
+    {
+      "id": "TS-02-E1",
+      "requirement_id": "02-REQ-1.E1",
+      "kind": "integration",
+      "description": "Verify that extra top-level fields beyond the 9 defined in AuditEvent are silently ignored and the event is accepted and stored.",
+      "preconditions": [
+        "Service is running with initialised 10-column events table (empty before test).",
+        "Valid Bearer token and Content-Type: application/json are used."
+      ],
+      "input": "POST /v1/events with canonical valid AuditEvent JSON plus additional fields: {\"id\":\"extra-field-id\",\"timestamp\":\"t\",\"run_id\":\"r\",\"event_type\":\"e\",\"node_id\":\"\",\"session_id\":\"\",\"archetype\":\"\",\"severity\":\"info\",\"payload\":{},\"future_field\":\"value\",\"another_extra\":42}",
+      "expected": "HTTP 201 Created; one row stored in events with id='extra-field-id'; no rejection due to extra fields.",
+      "assertion_pseudocode": "resp = POST(\"/v1/events\", body_with_extra_fields, auth_header); assert resp.status_code == 201; assert len(resp.body) == 0; count = db_query(\"SELECT COUNT(*) FROM events WHERE id='extra-field-id'\").count; assert count == 1"
+    },
+    {
+      "id": "TS-02-E2",
+      "requirement_id": "02-REQ-2.E1",
+      "kind": "integration",
+      "description": "Verify that a non-empty body with malformed JSON is silently rejected with HTTP 201 and no row is stored.",
+      "preconditions": [
+        "Service is running with initialised 10-column events table (empty before test).",
+        "Valid Bearer token and Content-Type: application/json are used."
+      ],
+      "input": "POST /v1/events with body: 'this is not json'",
+      "expected": "HTTP 201 Created with zero-byte body and no Content-Type header; no row inserted in events table.",
+      "assertion_pseudocode": "resp = POST(\"/v1/events\", \"this is not json\", auth_header); assert resp.status_code == 201; assert len(resp.body) == 0; assert resp.headers.get(\"Content-Type\") == None; count = db_query(\"SELECT COUNT(*) FROM events\").count; assert count == 0"
+    },
+    {
+      "id": "TS-02-E3",
+      "requirement_id": "02-REQ-2.E1",
+      "kind": "integration",
+      "description": "Verify that a non-empty body that is a JSON array (not an object) is silently rejected with HTTP 201 and no row is stored.",
+      "preconditions": [
+        "Service is running with initialised 10-column events table (empty before test).",
+        "Valid Bearer token and Content-Type: application/json are used."
+      ],
+      "input": "POST /v1/events with body: '[\"not\", \"an\", \"object\"]'",
+      "expected": "HTTP 201 Created with zero-byte body and no Content-Type header; no row inserted in events table.",
+      "assertion_pseudocode": "resp = POST(\"/v1/events\", \"[\\\"not\\\", \\\"an\\\", \\\"object\\\"]\", auth_header); assert resp.status_code == 201; assert len(resp.body) == 0; count = db_query(\"SELECT COUNT(*) FROM events\").count; assert count == 0"
+    },
+    {
+      "id": "TS-02-E4",
+      "requirement_id": "02-REQ-2.E1",
+      "kind": "integration",
+      "description": "Verify that a non-empty body that is a JSON scalar (null) is silently rejected with HTTP 201 and no row is stored.",
+      "preconditions": [
+        "Service is running with initialised 10-column events table (empty before test).",
+        "Valid Bearer token and Content-Type: application/json are used."
+      ],
+      "input": "POST /v1/events with body: 'null'",
+      "expected": "HTTP 201 Created with zero-byte body and no Content-Type header; no row inserted in events table.",
+      "assertion_pseudocode": "resp = POST(\"/v1/events\", \"null\", auth_header); assert resp.status_code == 201; assert len(resp.body) == 0; count = db_query(\"SELECT COUNT(*) FROM events\").count; assert count == 0"
+    },
+    {
+      "id": "TS-02-E5",
+      "requirement_id": "02-REQ-2.E2",
+      "kind": "integration",
+      "description": "Verify that an event with an empty string id is silently rejected with HTTP 201 and no row is stored.",
+      "preconditions": [
+        "Service is running with initialised 10-column events table (empty before test).",
+        "Valid Bearer token and Content-Type: application/json are used."
+      ],
+      "input": "POST /v1/events with body: {\"id\":\"\",\"timestamp\":\"t\",\"run_id\":\"r\",\"event_type\":\"e\",\"node_id\":\"\",\"session_id\":\"\",\"archetype\":\"\",\"severity\":\"info\",\"payload\":{}}",
+      "expected": "HTTP 201 Created with zero-byte body; no row inserted in events table.",
+      "assertion_pseudocode": "resp = POST(\"/v1/events\", body_empty_id, auth_header); assert resp.status_code == 201; assert len(resp.body) == 0; count = db_query(\"SELECT COUNT(*) FROM events\").count; assert count == 0"
+    },
+    {
+      "id": "TS-02-E6",
+      "requirement_id": "02-REQ-2.E2",
+      "kind": "integration",
+      "description": "Verify that an event with an empty string severity is silently rejected with HTTP 201 and no row is stored.",
+      "preconditions": [
+        "Service is running with initialised 10-column events table (empty before test).",
+        "Valid Bearer token and Content-Type: application/json are used."
+      ],
+      "input": "POST /v1/events with body: {\"id\":\"some-id\",\"timestamp\":\"t\",\"run_id\":\"r\",\"event_type\":\"e\",\"node_id\":\"\",\"session_id\":\"\",\"archetype\":\"\",\"severity\":\"\",\"payload\":{}}",
+      "expected": "HTTP 201 Created with zero-byte body; no row inserted in events table.",
+      "assertion_pseudocode": "resp = POST(\"/v1/events\", body_empty_severity, auth_header); assert resp.status_code == 201; assert len(resp.body) == 0; count = db_query(\"SELECT COUNT(*) FROM events\").count; assert count == 0"
+    },
+    {
+      "id": "TS-02-E7",
+      "requirement_id": "02-REQ-2.E3",
+      "kind": "integration",
+      "description": "Verify that an event whose payload first non-whitespace byte is '[' (array) is silently rejected with HTTP 201 and no row is stored.",
+      "preconditions": [
+        "Service is running with initialised 10-column events table (empty before test).",
+        "Valid Bearer token and Content-Type: application/json are used."
+      ],
+      "input": "POST /v1/events with body: {\"id\":\"arr-id\",\"timestamp\":\"t\",\"run_id\":\"r\",\"event_type\":\"e\",\"node_id\":\"\",\"session_id\":\"\",\"archetype\":\"\",\"severity\":\"info\",\"payload\":[\"not\",\"an\",\"object\"]}",
+      "expected": "HTTP 201 Created with zero-byte body; no row inserted in events table.",
+      "assertion_pseudocode": "resp = POST(\"/v1/events\", body_array_payload, auth_header); assert resp.status_code == 201; assert len(resp.body) == 0; count = db_query(\"SELECT COUNT(*) FROM events\").count; assert count == 0"
+    },
+    {
+      "id": "TS-02-E8",
+      "requirement_id": "02-REQ-2.E3",
+      "kind": "integration",
+      "description": "Verify that an event whose payload is null (first byte 'n') is silently rejected with HTTP 201 and no row is stored.",
+      "preconditions": [
+        "Service is running with initialised 10-column events table (empty before test).",
+        "Valid Bearer token and Content-Type: application/json are used."
+      ],
+      "input": "POST /v1/events with body: {\"id\":\"null-payload-id\",\"timestamp\":\"t\",\"run_id\":\"r\",\"event_type\":\"e\",\"node_id\":\"\",\"session_id\":\"\",\"archetype\":\"\",\"severity\":\"info\",\"payload\":null}",
+      "expected": "HTTP 201 Created with zero-byte body; no row inserted in events table.",
+      "assertion_pseudocode": "resp = POST(\"/v1/events\", body_null_payload, auth_header); assert resp.status_code == 201; assert len(resp.body) == 0; count = db_query(\"SELECT COUNT(*) FROM events\").count; assert count == 0"
+    },
+    {
+      "id": "TS-02-E9",
+      "requirement_id": "02-REQ-2.E4",
+      "kind": "integration",
+      "description": "Verify that an empty request body returns HTTP 400 Bad Request, preserving existing middleware behavior.",
+      "preconditions": [
+        "Service is running with initialised events table.",
+        "Valid Bearer token and Content-Type: application/json are used."
+      ],
+      "input": "POST /v1/events with an empty body (Content-Length: 0).",
+      "expected": "HTTP 400 Bad Request; no change to events table.",
+      "assertion_pseudocode": "resp = POST(\"/v1/events\", \"\", auth_header); assert resp.status_code == 400"
+    },
+    {
+      "id": "TS-02-E10",
+      "requirement_id": "02-REQ-5.E1",
+      "kind": "unit",
+      "description": "Verify that if CREATE TABLE IF NOT EXISTS DDL fails on startup, the service logs a fatal error and exits with a non-zero exit code.",
+      "preconditions": [
+        "A database handle is configured such that DDL execution will fail (e.g., a read-only database file or an in-memory DB that returns an error on exec)."
+      ],
+      "input": "Call the DB initialization function from `internal/db/db.go` with a database handle that returns an error on DDL execution.",
+      "expected": "The function logs a fatal error and calls os.Exit (or log.Fatal) with a non-zero exit code; it does not return normally.",
+      "assertion_pseudocode": "mock_db = db_that_fails_on_exec(); assert panics_or_exits_nonzero( func() { init_db(mock_db) } )"
+    },
+    {
+      "id": "TS-02-E11",
+      "requirement_id": "02-REQ-5.E2",
+      "kind": "unit",
+      "description": "Verify that if the events table already exists (even with the old 3-column schema), CREATE TABLE IF NOT EXISTS is a no-op and the service starts normally.",
+      "preconditions": [
+        "A SQLite database file exists with the old 3-column events table schema (id, payload, received_at)."
+      ],
+      "input": "Call the DB initialization function from `internal/db/db.go` on the database with the old schema.",
+      "expected": "The function returns without error; no fatal exit occurs; the service continues startup normally.",
+      "assertion_pseudocode": "db = open_sqlite(old_schema_db_path); err = init_db(db); assert err == nil OR no_exit_called()"
+    }
+  ],
+  "smoke_tests": [
+    {
+      "id": "TS-02-SMOKE-1",
+      "execution_path_id": "02-PATH-1",
+      "description": "Smoke test for the happy path: a valid audit event is authenticated, validated, stored in the events table, and a 201 response is returned.",
+      "trigger": "POST /v1/events with canonical valid AuditEvent JSON, valid Bearer token, and Content-Type: application/json.",
+      "real_components": [
+        "Echo HTTP server (internal/handler/events.go)",
+        "AuditEvent struct (internal/db/events.go)",
+        "InsertEvent function (internal/db/events.go)",
+        "SQLite database (events table)"
+      ],
+      "mockable": [],
+      "expected_effects": [
+        "HTTP 201 Created with zero-byte body and no Content-Type header",
+        "One row inserted into the events table with all 9 event fields and a valid received_at timestamp"
+      ]
+    },
+    {
+      "id": "TS-02-SMOKE-2",
+      "execution_path_id": "02-PATH-2",
+      "description": "Smoke test for the silent rejection path: an invalid event is received, silently rejected without storage, and a 201 response is returned.",
+      "trigger": "POST /v1/events with an invalid JSON body (e.g. missing event_type field), valid Bearer token, and Content-Type: application/json.",
+      "real_components": [
+        "Echo HTTP server (internal/handler/events.go)",
+        "AuditEvent struct (internal/db/events.go)",
+        "SQLite database (events table)"
+      ],
+      "mockable": [],
+      "expected_effects": [
+        "HTTP 201 Created with zero-byte body and no Content-Type header",
+        "No row inserted into the events table",
+        "No error logged for the rejected event"
+      ]
+    },
+    {
+      "id": "TS-02-SMOKE-3",
+      "execution_path_id": "02-PATH-3",
+      "description": "Smoke test for the duplicate event path: the same valid event submitted twice results in only one stored row and 201 for both requests.",
+      "trigger": "POST /v1/events twice with identical canonical valid AuditEvent JSON (same id), valid Bearer token, and Content-Type: application/json.",
+      "real_components": [
+        "Echo HTTP server (internal/handler/events.go)",
+        "InsertEvent function with INSERT OR IGNORE (internal/db/events.go)",
+        "SQLite database (events table)"
+      ],
+      "mockable": [],
+      "expected_effects": [
+        "HTTP 201 Created with zero-byte body for both requests",
+        "Exactly one row exists in the events table with the submitted id"
+      ]
+    },
+    {
+      "id": "TS-02-SMOKE-4",
+      "execution_path_id": "02-PATH-4",
+      "description": "Smoke test for successful service startup: the service executes CREATE TABLE IF NOT EXISTS DDL and begins serving requests.",
+      "trigger": "Start the service binary with a fresh (empty) SQLite database file.",
+      "real_components": [
+        "Service main entrypoint",
+        "DB initialization function (internal/db/db.go)",
+        "SQLite database file"
+      ],
+      "mockable": [],
+      "expected_effects": [
+        "CREATE TABLE IF NOT EXISTS events DDL executes successfully",
+        "events table exists with 10 columns per PRAGMA table_info(events)",
+        "Service begins accepting HTTP requests (GET /healthz returns 200)"
+      ]
+    },
+    {
+      "id": "TS-02-SMOKE-5",
+      "execution_path_id": "02-PATH-5",
+      "description": "Smoke test for startup failure: if the CREATE TABLE IF NOT EXISTS DDL fails, the service logs a fatal error and exits with a non-zero exit code.",
+      "trigger": "Start the service with a database configuration that causes the DDL statement to fail (e.g. read-only database file).",
+      "real_components": [
+        "Service main entrypoint",
+        "DB initialization function (internal/db/db.go)"
+      ],
+      "mockable": [
+        "SQLite database handle (configured to fail on DDL exec)"
+      ],
+      "expected_effects": [
+        "Service logs a fatal error message referencing the DDL failure",
+        "Process exits with a non-zero exit code",
+        "No HTTP server is started; no requests are served"
+      ]
+    }
+  ],
+  "coverage": {
+    "requirements_covered": [],
+    "properties_covered": [],
+    "paths_covered": [],
+    "gaps": []
+  }
+}

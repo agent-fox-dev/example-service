@@ -1,0 +1,377 @@
+{
+  "state": "generated",
+  "prd_path": "prd.md",
+  "assessment_history": [
+    {
+      "quality": "ready",
+      "summary": "The \"audit_event_schema\" PRD is thorough, well-structured, and covers all four required spec sections (Intent, Goals, Non-Goals, Background) with high quality. The Intent is precise and scoped, the Background provides concrete motivation and current-state context, Goals are actionable and tied to observable outcomes, and Non-Goals clearly delineate the boundary of work. Beyond the four core sections, the document also includes detailed Functional Requirements, Design Decisions, a Dependencies table, and a traceable data source \u2014 all of which significantly strengthen the spec. Only very minor ambiguities exist that are unlikely to block implementation.",
+      "gaps": [
+        "The 'owner' field is blank \u2014 no named owner or team is assigned to this spec, which could create accountability gaps.",
+        "Goals are stated as behavioral/functional outcomes rather than measurable business or operational metrics (e.g., no target for ingestion latency, rejection rate observability, or uptime SLO). This is acceptable given the scoped nature of the change but worth noting.",
+        "Silent rejection (201 for invalid events) with no logging is noted as intentional, but there is no mention of any alternative observability mechanism (e.g., metrics counter for rejected events) that operators could use to detect misconfigured clients without exposing a DoS vector.",
+        "The spec does not address migration strategy for the existing 'events' table and any data it may contain \u2014 whether it is dropped, archived, or migrated.",
+        "The `timestamp` and `id` fields are validated as non-empty strings only (not as ISO 8601 or UUID format per Design Decision #5), but the column type is TEXT rather than a typed datetime \u2014 this is consistent but the rationale for not using a native DATETIME type for `timestamp` is not explicitly stated.",
+        "No explicit test coverage expectations or acceptance criteria are defined beyond referencing the dependency on spec 01_basic_svc integration tests."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "Who is the owner or responsible team for this spec?",
+          "context": "The 'owner' field is empty. Assigning an owner ensures accountability for decisions, reviews, and delivery of this change.",
+          "options": [],
+          "required": false
+        },
+        {
+          "id": "q2",
+          "text": "What is the migration strategy for the existing 'events' table and any data currently stored in it?",
+          "context": "The spec states the table 'must be replaced' with a new schema but does not address whether existing rows are dropped, archived, or migrated. This is critical for safe deployment, especially in a production environment.",
+          "options": [
+            "Drop the existing table and all its data (acceptable \u2014 data has no long-term value).",
+            "Archive existing rows to a separate table before replacing the schema.",
+            "Migrate existing raw payloads into the new column structure where possible.",
+            "The table is empty / this is a greenfield deployment \u2014 no migration needed."
+          ],
+          "required": false
+        },
+        {
+          "id": "q3",
+          "text": "Should rejected events be counted in any metrics or observability signal, even if they are not logged individually?",
+          "context": "The spec mandates silent rejection with no error logging to prevent DoS via log flooding or schema probing. However, without any signal, operators have no way to detect a misconfigured upstream client silently losing events. A metrics counter (e.g., a Prometheus counter incremented per rejection) could provide visibility without exposing the rejection reason.",
+          "options": [
+            "No \u2014 full silence is required; any signal risks information leakage.",
+            "Yes \u2014 increment an internal counter/metric for rejected events (no per-event logging).",
+            "Out of scope for this spec; address in a follow-up observability spec."
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD is well-structured and covers the core requirements with commendable clarity. The audit event schema, validation rules, migration strategy, and design decisions are all documented thoughtfully. However, several gaps remain that could lead to ambiguity during implementation: the HTTP response body for success cases is inconsistently described, the Content-Type of the 201 response is unspecified, the `InsertEvent` function signature is mentioned but not fully defined, edge cases around payload serialization are not addressed, and there is no explicit test coverage expectation stated. These are refinements rather than blockers, but resolving them would make this spec implementation-ready.",
+      "gaps": [
+        "The 201 Created success response body is described as 'empty body' in one place, but no explicit Content-Type or body content for the success response is formally specified in the Functional Requirements section.",
+        "The updated `db.InsertEvent` function signature is referenced but never formally defined \u2014 parameter names, types, and return values are not listed, leaving implementation details ambiguous.",
+        "No explicit statement on how the `payload` object is serialized before storage (e.g., must it be stored as-is from the raw request bytes, or re-serialized from the parsed object? This matters for key ordering and whitespace).",
+        "The behaviour when the request body exceeds a certain size is not addressed \u2014 there is no max body size limit specified, which could be a DoS vector.",
+        "No explicit statement on which existing integration tests (from 01_basic_svc) are expected to be updated or added as part of this spec, despite the dependency being listed.",
+        "The error response format for the unchanged behaviours (e.g., 400 on empty body, 401 on missing token) is referred to as 'Echo Framework default format' without specifying what that looks like \u2014 could cause test brittleness.",
+        "No explicit ordering or uniqueness constraint on `received_at` is discussed in the schema, and its precision/format (e.g., RFC3339, Unix epoch) is unspecified."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What should the 201 Created response body and Content-Type header contain for both accepted and silently rejected events?",
+          "context": "The spec says 'empty body' in the validation section but does not formally specify this in the HTTP contract. Implementations and tests need an exact definition \u2014 e.g., truly zero bytes with no Content-Type, or an empty JSON object `{}` with `application/json`.",
+          "options": [
+            "Zero-byte body, no Content-Type header",
+            "Empty JSON object `{}` with Content-Type: application/json",
+            "Match the existing success response of the current endpoint exactly (preserve whatever it currently returns)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "How should the `payload` field be stored in the database \u2014 as raw bytes from the original request, or re-serialized from the parsed Go value?",
+          "context": "If the payload is re-serialized after parsing, key order and whitespace may differ from the original. If stored as raw bytes, the exact original representation is preserved. This affects reproducibility and downstream consumers reading the TEXT column.",
+          "options": [
+            "Store raw bytes from the original request (preserves exact representation)",
+            "Re-serialize from the parsed Go map (normalized, but may differ from original)",
+            "No preference \u2014 either is acceptable"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "Should a maximum request body size limit be enforced on POST /v1/events, and if so, what is the limit?",
+          "context": "Without a body size limit, a single large request could exhaust memory. The spec currently has no mention of this. Even if the existing service already has a limit via Echo or a middleware, it should be explicitly confirmed here.",
+          "options": [
+            "Rely on whatever default Echo or the existing middleware already enforces (document the existing limit)",
+            "Explicitly cap at 1 MB and return 413 Payload Too Large",
+            "Explicitly cap at 4 MB and return 413 Payload Too Large",
+            "No body size limit required for this spec"
+          ],
+          "required": false
+        },
+        {
+          "id": "q4",
+          "text": "What is the exact Go function signature for the updated `db.InsertEvent` function?",
+          "context": "The spec says the signature 'must be updated to accept individual typed fields instead of a raw payload string' but does not list the parameters. A concrete signature (or at minimum the parameter list and return type) is needed for implementation and for updating call sites.",
+          "options": [
+            "InsertEvent(ctx context.Context, e AuditEvent) error \u2014 accept a struct",
+            "InsertEvent(ctx context.Context, id, timestamp, runID, eventType, nodeID, sessionID, archetype, severity, payload string) error \u2014 accept flat args",
+            "Leave the exact signature to the implementer as long as INSERT OR IGNORE semantics are used"
+          ],
+          "required": true
+        },
+        {
+          "id": "q5",
+          "text": "What format and precision should the `received_at` column value be stored in?",
+          "context": "The schema says DATETIME NOT NULL with server-side UTC timestamp, but does not specify format (RFC3339, Unix epoch integer, SQLite CURRENT_TIMESTAMP string, etc.) or sub-second precision. This affects how tests assert on the column value and how downstream tooling reads it.",
+          "options": [
+            "RFC3339 string with nanosecond precision (e.g., 2026-06-18T11:26:26.123456789Z)",
+            "RFC3339 string with second precision (e.g., 2026-06-18T11:26:26Z)",
+            "SQLite CURRENT_TIMESTAMP format (YYYY-MM-DD HH:MM:SS, UTC)",
+            "Unix epoch integer (seconds)"
+          ],
+          "required": false
+        },
+        {
+          "id": "q6",
+          "text": "Which integration tests from 01_basic_svc need to be updated or added as part of this spec?",
+          "context": "The dependency table references 01_basic_svc but gives no detail on which tests change. Listing the affected test cases (or at minimum the test categories) would prevent the implementer from missing regressions.",
+          "options": [
+            "Provide a list of specific test cases / test file names to update",
+            "Add a new test file covering the new validation and schema \u2014 existing tests are adjusted to match new 201 response format",
+            "Leave test scope to the implementer's discretion"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD is well-structured and highly detailed in most areas. It clearly defines the audit event schema, validation rules, HTTP response contract, database schema, migration strategy, and integration test requirements. Design decisions are thoroughly documented. However, several gaps remain that could cause ambiguity during implementation: the package/module location for the `AuditEvent` struct and `InsertEvent` function is unspecified; the JSON deserialization struct (used for validation binding) is not defined; the precise behaviour when the request body is not valid JSON (vs. other validation failures) is ambiguous relative to the existing 400 Bad Request for empty body; the exact DDL for the new `events` table is missing; and there is no explicit statement about whether `uuid` format validation for the `id` field is enforced at the HTTP layer or deferred entirely to the DB primary key constraint.",
+      "gaps": [
+        "Package location for `AuditEvent` struct and updated `InsertEvent` function is not specified \u2014 unclear whether they live in the existing `db` package, a new `audit` package, or elsewhere.",
+        "No JSON binding/deserialization struct is defined for the HTTP handler layer \u2014 it is unclear whether the handler uses the same `AuditEvent` struct or a separate DTO for unmarshalling and validation.",
+        "The boundary between the existing '400 Bad Request for empty body' behaviour and the new 'silent 201 for invalid JSON' behaviour is not explicitly reconciled \u2014 it is unclear whether a non-empty but non-JSON body (e.g. plain text) returns 400 or 201.",
+        "The full DDL statement for the new `events` table is not provided \u2014 implementers must infer it from the column table, risking inconsistency (e.g. missing COLLATE, index definitions, or SQLite-specific syntax).",
+        "No explicit statement on whether `uuid` format of the `id` field is enforced beyond 'non-empty string' \u2014 the Design Decisions section implies it is not, but the Audit Event Structure table says 'UUID format', creating a contradiction.",
+        "The file paths or package names of files that must be modified (handler file, db file, migration file, test file) are not listed, making it harder to scope the implementation work.",
+        "No explicit rollback or failure handling is described for the DROP + CREATE TABLE sequence on startup \u2014 it is unclear what happens if DROP succeeds but CREATE fails."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "Where should the `AuditEvent` struct and the updated `InsertEvent` function live \u2014 in the existing `db` package, a new shared package (e.g. `audit` or `model`), or somewhere else?",
+          "context": "Without knowing the package location, implementers may place the struct inconsistently, causing import cycles or misalignment with the existing codebase structure.",
+          "options": [
+            "Keep both in the existing `db` package",
+            "Move to a new `audit` package imported by both `db` and the handler",
+            "Move to a new `model` package",
+            "Other (please specify)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "Does the handler use the same `AuditEvent` struct for JSON unmarshalling/validation, or is a separate DTO (e.g. with `json:\"...\"` tags) used for binding before mapping to `AuditEvent`?",
+          "context": "The `AuditEvent` struct as defined has no `json` struct tags. If it is used directly for `json.Unmarshal`, field names must match JSON keys exactly (they don't \u2014 e.g. `ID` vs `id`, `RunID` vs `run_id`). A separate binding struct or explicit tags are needed.",
+          "options": [
+            "Add `json:\"...\"` tags directly to `AuditEvent`",
+            "Use a separate unexported binding struct in the handler, then map to `AuditEvent`",
+            "Use `json.RawMessage` + manual field extraction (no struct tags needed)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "What should the handler return when the request body is non-empty but is not valid JSON (e.g. plain text or a truncated JSON body)? Should it return `201 Created` (silent rejection) or the existing `400 Bad Request`?",
+          "context": "The spec says empty body returns 400 (existing behaviour, unchanged). It also says invalid audit event structure returns 201 (silent rejection). A non-empty, non-JSON body sits between these two cases and the spec does not resolve it.",
+          "options": [
+            "Return 201 Created (silent rejection \u2014 treat as 'invalid event')",
+            "Return 400 Bad Request (treat as malformed request, same as empty body)",
+            "Return 400 Bad Request only for empty body; 201 for all other parse/validation failures"
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "Should the `id` field be validated as a proper UUID (format check), or is any non-empty string accepted as stated in Design Decision #5?",
+          "context": "The Audit Event Structure table says `id` has constraint 'UUID format', but Design Decision #5 explicitly states 'we check that `id` is a non-empty string but do not enforce UUID format.' This contradiction needs resolution.",
+          "options": [
+            "Non-empty string only \u2014 no UUID format enforcement (align with Design Decision #5)",
+            "Enforce UUID v4 format (align with the table constraint)",
+            "Enforce any valid UUID format (v1\u2013v5)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q5",
+          "text": "Can you provide the explicit DDL for the new `events` table, or should the implementer derive it from the column table? Are there any SQLite-specific options (e.g. `WITHOUT ROWID`, `STRICT`, collation) to apply?",
+          "context": "Providing the exact DDL removes ambiguity about SQLite syntax, constraint naming, and options, and ensures the migration produces exactly the intended schema.",
+          "options": [
+            "Provide explicit DDL in the spec",
+            "Implementer derives DDL from the column table \u2014 standard SQLite TEXT/NOT NULL/PRIMARY KEY only, no special options"
+          ],
+          "required": false
+        },
+        {
+          "id": "q6",
+          "text": "What should happen if the DROP TABLE step succeeds but the subsequent CREATE TABLE fails on startup (e.g. due to a syntax error or disk issue)? Should the service refuse to start, panic, or log and continue?",
+          "context": "The migration is destructive (DROP first). If CREATE fails after DROP, the service is left with no `events` table, which will cause runtime errors on every insert. The failure mode should be explicit.",
+          "options": [
+            "Log a fatal error and exit (refuse to start)",
+            "Panic",
+            "Log the error and continue (inserts will fail at runtime)"
+          ],
+          "required": false
+        },
+        {
+          "id": "q7",
+          "text": "Should the list of source files to be modified (handler file, db file, schema/migration file, test file) be explicitly enumerated in the spec?",
+          "context": "Listing the exact file paths scopes the implementation work clearly and prevents implementers from searching the codebase to find the right files.",
+          "options": [
+            "Yes \u2014 add a file change manifest to the spec",
+            "No \u2014 implementers can locate files from the existing codebase"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD is well-structured and highly detailed. It clearly defines the audit event schema, validation rules, HTTP response contract, database migration strategy, duplicate handling, design decisions, and file change manifest. The spec is close to implementation-ready, but several gaps remain: the handler's validation logic for `payload` type-checking (distinguishing object from array/scalar) is underspecified at the code level, the exact method for checking \"no additional top-level fields\" vs. \"ignored\" is slightly contradictory, test fixture details for the new integration tests are absent, and there is no explicit mention of transaction handling (or lack thereof) during the insert. A few edge cases around malformed UTF-8, extremely large payloads, and concurrent startup behaviour also merit brief acknowledgment.",
+      "gaps": [
+        "Validation rule 1 states the body must parse into an object (not array or scalar), but there is no guidance on how the Go handler should detect this \u2014 e.g., whether to unmarshal first into json.RawMessage and inspect the first byte, or use a two-pass approach. Implementers may make different choices.",
+        "Validation rule 6 says extra top-level fields are 'ignored (not cause for rejection)', but the spec also says the struct-based unmarshal is used directly. Since Go's json.Unmarshal silently ignores unknown fields by default, this is implicitly covered, but it should be stated explicitly so implementers do not add DisallowUnknownFields.",
+        "The `payload` field type check (must be JSON object, not array or null) requires explicit detection after unmarshalling into json.RawMessage. The spec does not describe how to implement this check, which is non-trivial and error-prone.",
+        "No test fixture values are provided for the new integration tests (TestTS02_1, TestTS02_2, TestTS02_3). Without example payloads, test authors must invent values, risking inconsistency with the validated field constraints.",
+        "The spec does not state whether the INSERT into the database is wrapped in a transaction, or whether a bare db.ExecContext is sufficient. For a single-row insert this is usually fine, but it should be explicit.",
+        "There is no mention of how the handler obtains the *sql.DB handle \u2014 whether it is injected via Echo context, closure, or middleware. Existing call sites may vary, and the spec should confirm the pattern to follow.",
+        "The spec defers body size limits to a follow-up but does not acknowledge the risk of unbounded memory usage when reading the request body into memory for JSON parsing. At minimum, a note on the Echo default limit value would help implementers assess risk.",
+        "The migration strategy (DROP + CREATE on every startup) could be destructive in a blue-green or rolling restart scenario where two instances start simultaneously. The spec should acknowledge this risk and confirm it is acceptable given the non-production context.",
+        "No mention of what happens if the `events` table DROP fails (e.g., permissions issue). Only the CREATE failure path is described; the DROP failure path is unspecified.",
+        "The `received_at` column type is DATETIME but SQLite has no native DATETIME type \u2014 it is stored as TEXT. The spec should clarify that this is intentional and consistent with SQLite's type affinity rules, to avoid implementers adding STRICT or type casts."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "How should the handler detect that the JSON body is an object (not an array or scalar) before or after unmarshalling into AuditEvent? Should it use a two-pass approach (first unmarshal into json.RawMessage, inspect the leading byte), attempt struct unmarshal and treat any error as a silent rejection, or another method?",
+          "context": "Validation rule 1 requires rejecting arrays and scalars, but the Go implementation strategy for this check is not specified. Different approaches have different trade-offs (performance, correctness with edge cases like 'null').",
+          "options": [
+            "Two-pass: unmarshal into json.RawMessage first, check leading byte is '{', then unmarshal into AuditEvent",
+            "Single-pass: unmarshal directly into AuditEvent struct; any error (including type mismatch) is treated as silent rejection",
+            "Use json.Decoder with DisallowUnknownFields to catch type mismatches explicitly",
+            "Other (please describe)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "Should the handler use json.Decoder with DisallowUnknownFields, or should extra top-level fields be silently ignored (default Go behaviour)? The spec currently says extra fields are ignored, but this should be confirmed explicitly.",
+          "context": "If DisallowUnknownFields is used, payloads with extra fields would be silently rejected (201). If default behaviour is used, extra fields are ignored and the event is stored. The spec says 'ignored (not cause for rejection)' but this needs to be confirmed as a deliberate choice.",
+          "options": [
+            "Extra fields are silently ignored \u2014 do NOT use DisallowUnknownFields (current spec wording)",
+            "Extra fields cause silent rejection \u2014 use DisallowUnknownFields"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "How should the handler validate that the `payload` field is a JSON object and not an array, null, string, or number? Please confirm the expected implementation approach.",
+          "context": "json.RawMessage unmarshalling accepts any valid JSON value. A payload of `[]` or `null` would unmarshal successfully into json.RawMessage without error, so an explicit type check is needed. The spec currently says 'must be a JSON object' but does not describe the check.",
+          "options": [
+            "Inspect the first non-whitespace byte of the RawMessage \u2014 must be '{'",
+            "Attempt to unmarshal payload RawMessage into map[string]interface{}; if it fails, silently reject",
+            "Use json.Unmarshal into json.RawMessage and then check json.Valid plus leading byte",
+            "Other (please describe)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "What example JSON payloads should be used in the new integration tests (TestTS02_1, TestTS02_2, TestTS02_3)? Specifically: (a) a canonical valid AuditEvent payload, (b) the invalid payload for TestTS02_2 (which field(s) should be missing or wrong)?",
+          "context": "Without fixture values, test authors must invent payloads, risking inconsistency. A canonical example also serves as documentation of the expected format.",
+          "options": [],
+          "required": false
+        },
+        {
+          "id": "q5",
+          "text": "What happens if the DROP TABLE statement fails at startup (e.g., due to a permissions error or locked database)? Should the service log a fatal error and exit, log a warning and continue, or attempt to proceed with CREATE TABLE IF NOT EXISTS?",
+          "context": "The spec currently only describes the failure path for CREATE TABLE. The DROP TABLE failure path is unspecified, leaving implementers to make their own choice, which could result in a running service with the wrong schema.",
+          "options": [
+            "Log a fatal error and exit (same as CREATE failure)",
+            "Log a warning and attempt CREATE TABLE IF NOT EXISTS anyway",
+            "Other (please describe)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q6",
+          "text": "How does the handler obtain the *sql.DB handle? Is it injected via an Echo context value, a closure over the handler function, a middleware-set context key, or another pattern already established in the codebase?",
+          "context": "The spec describes InsertEvent's signature but not how the handler accesses the database handle. If the existing codebase already establishes a pattern, the spec should reference it to avoid divergence.",
+          "options": [
+            "Closure \u2014 the handler function closes over a *sql.DB variable set at startup",
+            "Echo context value \u2014 retrieved via c.Get(\"db\") or similar",
+            "Dependency injection via a handler struct with a DB field",
+            "Other / already documented elsewhere in the codebase"
+          ],
+          "required": false
+        },
+        {
+          "id": "q7",
+          "text": "Should the spec explicitly acknowledge that the DATETIME column type for `received_at` is stored as TEXT in SQLite (due to SQLite's type affinity rules), and confirm this is intentional?",
+          "context": "SQLite has no native DATETIME type. Values stored in a DATETIME column are stored as TEXT. If implementers are not aware of this, they may add unnecessary type casts or STRICT table modifiers.",
+          "options": [
+            "Yes \u2014 add a note clarifying that DATETIME is SQLite TEXT-affinity and this is intentional",
+            "No \u2014 this is already implicit from the existing behaviour and does not need to be stated"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "ready",
+      "summary": "The PRD is now implementation-ready. All major gaps from the previous assessment have been closed: the single-pass unmarshal strategy is explicitly specified, `DisallowUnknownFields` is explicitly prohibited, the payload object type-check via first-byte inspection is described precisely, canonical test fixture payloads are provided (including three distinct invalid cases for TestTS02_2), the migration strategy has been corrected from DROP+CREATE to CREATE IF NOT EXISTS only (with rationale), DROP TABLE failure handling is now a non-issue, transaction handling is explicitly specified as a bare ExecContext, the handler DB access pattern is confirmed as the existing EventsHandler.DB field, and the DATETIME/TEXT SQLite behaviour is acknowledged as intentional. The design decisions section has been expanded with five new entries covering these resolutions. The document is consistent, unambiguous, and provides enough detail for a developer to implement without additional clarification.",
+      "gaps": [],
+      "questions": []
+    }
+  ],
+  "qa_exchanges": [
+    {
+      "assessment_index": 0,
+      "answers": {
+        "q1": "agent-fox team (same owner as the parent spec 01_basic_svc).",
+        "q2": "Drop the existing table and all its data \u2014 this is a test/integration service with no long-term data value. The schema DDL uses CREATE TABLE IF NOT EXISTS, and the table will be recreated with the new schema on next startup.",
+        "q3": "Out of scope for this spec. Observability for rejected events can be addressed in a follow-up spec if needed."
+      },
+      "timestamp": "2026-06-22T12:01:05.804004+00:00"
+    },
+    {
+      "assessment_index": 1,
+      "answers": {
+        "q1": "Zero-byte body, no Content-Type header. This matches the existing behaviour (the handler returns c.NoContent(http.StatusCreated)). Both accepted and silently rejected events get this identical response.",
+        "q2": "Re-serialize from the parsed Go value. The body is parsed to validate structure and extract all fields. The payload field can be stored via json.RawMessage if exact byte preservation is desired, but re-serialized form is also acceptable since downstream consumers will parse it as JSON regardless.",
+        "q3": "No body size limit required for this spec. Rely on Echo framework defaults. A body size limit can be addressed in a follow-up spec if needed.",
+        "q4": "InsertEvent(ctx context.Context, db *sql.DB, event AuditEvent) error \u2014 accept a struct. The AuditEvent struct holds all 9 typed fields. This is cleaner than flat args and allows easy extension.",
+        "q5": "RFC3339 string with nanosecond precision (e.g., 2026-06-18T11:26:26.123456789Z). This matches the existing behaviour of the current InsertEvent function which uses time.RFC3339Nano.",
+        "q6": "Existing tests that send arbitrary JSON payloads (e.g., TestTS01_1, TestTS01_2, TestTS01_5) must be updated to send valid audit event JSON instead. Tests that check for 400/401/500 error conditions remain unchanged. New tests should be added for: (a) valid audit event storage with column verification, (b) silent rejection of invalid event structure, (c) duplicate event ID handling."
+      },
+      "timestamp": "2026-06-22T12:02:41.174432+00:00"
+    },
+    {
+      "assessment_index": 2,
+      "answers": {
+        "q1": "Keep both in the existing `db` package. The AuditEvent struct and InsertEvent function belong together in internal/db since that package already owns the events schema and insert logic. No need for a new package \u2014 the codebase is small.",
+        "q2": "Add json struct tags directly to AuditEvent. Use json:\"id\", json:\"timestamp\", json:\"run_id\", json:\"event_type\", json:\"node_id\", json:\"session_id\", json:\"archetype\", json:\"severity\", json:\"payload\" tags. The payload field should be json.RawMessage for raw JSON preservation.",
+        "q3": "Return 201 Created (silent rejection). Any non-empty body that fails to parse as valid JSON or fails validation is treated as an invalid event and silently rejected. The only case that returns 400 is an empty body (preserved from existing behaviour).",
+        "q4": "Non-empty string only \u2014 no UUID format enforcement. Align with Design Decision #5. The table description should be updated to say 'non-empty string' instead of 'UUID format' to remove the contradiction.",
+        "q5": "Provide explicit DDL: CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, timestamp TEXT NOT NULL, run_id TEXT NOT NULL, event_type TEXT NOT NULL, node_id TEXT NOT NULL, session_id TEXT NOT NULL, archetype TEXT NOT NULL, severity TEXT NOT NULL, payload TEXT NOT NULL, received_at DATETIME NOT NULL). Standard SQLite, no special options.",
+        "q6": "Log a fatal error and exit (refuse to start). This matches the existing behaviour where schema creation failure causes the service to exit.",
+        "q7": "Yes \u2014 add a file change manifest: internal/db/db.go (schema DDL), internal/db/events.go (AuditEvent struct, InsertEvent function), internal/handler/events.go (validation logic), internal/integration/events_test.go (update payloads), internal/integration/validation_test.go (new silent rejection tests), internal/integration/helpers_test.go (update test schema), internal/db/db_test.go (update to match new schema)."
+      },
+      "timestamp": "2026-06-22T12:04:38.592389+00:00"
+    },
+    {
+      "assessment_index": 3,
+      "answers": {
+        "q1": "Single-pass: unmarshal directly into AuditEvent struct using json.Unmarshal. Any unmarshal error (including type mismatch from arrays, scalars) is treated as silent rejection. This is the simplest correct approach \u2014 Go's json.Unmarshal into a struct will fail if the input is an array or scalar, which is exactly the behavior we want.",
+        "q2": "Extra fields are silently ignored \u2014 do NOT use DisallowUnknownFields. This matches the spec wording and Go's default json.Unmarshal behavior. The agent-fox event format may add new fields in future versions, and the service should tolerate them.",
+        "q3": "Inspect the first non-whitespace byte of the RawMessage \u2014 must be '{'. This is the fastest and simplest check. After unmarshalling the AuditEvent struct, trim whitespace from the payload RawMessage and verify the first byte is '{'.",
+        "q4": "Canonical valid audit event: {\"id\":\"7c10ec9b-daaf-4146-8e40-6efc92e5db39\",\"timestamp\":\"2026-06-18T11:26:26.527713+00:00\",\"run_id\":\"20260618_112626_17dd3f\",\"event_type\":\"run.start\",\"node_id\":\"\",\"session_id\":\"\",\"archetype\":\"\",\"severity\":\"info\",\"payload\":{\"plan_hash\":\"abc123\"}}. Invalid payloads: (a) missing event_type field, (b) payload is an array instead of object, (c) empty id string.",
+        "q5": "Do NOT use DROP TABLE. Use CREATE TABLE IF NOT EXISTS with the new schema. If the table already exists with the old schema, it continues to work \u2014 SQLite does not validate column types strictly anyway. For a clean migration, users can delete the database file manually. The service should never destructively drop the table on startup.",
+        "q6": "Dependency injection via a handler struct with a DB field \u2014 this is the pattern already established in the codebase. The existing EventsHandler struct has a DB *sql.DB field.",
+        "q7": "No \u2014 this is already implicit from the existing behaviour. The current codebase already uses DATETIME for received_at in SQLite."
+      },
+      "timestamp": "2026-06-22T12:07:13.079581+00:00"
+    }
+  ],
+  "generated_artifacts": [
+    "requirements",
+    "test_spec",
+    "tasks"
+  ],
+  "mode": "interactive"
+}

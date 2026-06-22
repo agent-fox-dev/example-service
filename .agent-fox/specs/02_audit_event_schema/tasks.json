@@ -1,0 +1,851 @@
+{
+  "$schema": null,
+  "spec_id": "02",
+  "spec_name": "audit_event_schema",
+  "schema_version": 1,
+  "test_commands": {
+    "spec_tests": "go test ./internal/integration/... -count=1 -v -run 'TestTS02'",
+    "all_tests": "go test ./... -count=1",
+    "linter": "go vet ./..."
+  },
+  "dependencies": [
+    {
+      "depends_on_spec": "01",
+      "from_group": 1,
+      "to_group": 1,
+      "relationship": "Modifies integration tests first written in 01_basic_svc group 1",
+      "sentinel": false
+    }
+  ],
+  "task_groups": [
+    {
+      "id": 1,
+      "kind": "tests",
+      "title": "Write spec tests before implementation",
+      "subtasks": [
+        {
+          "id": "1.1",
+          "title": "Add TestTS02_1, TestTS02_2, TestTS02_3 to audit_events_test.go",
+          "details": [
+            "Create `internal/integration/audit_events_test.go` (note: `validation_test.go` already exists with spec 01 edge-case tests; use a new file to avoid conflicts).",
+            "TestTS02_1: POST canonical valid AuditEvent JSON, assert HTTP 201 with zero-byte body and no Content-Type header, query DB and verify all 9 event columns match; parse received_at as time.RFC3339Nano.",
+            "TestTS02_2: POST three invalid payloads as separate requests — (a) missing event_type, (b) payload as array, (c) empty id — assert HTTP 201 and zero rows in events table for each.",
+            "TestTS02_3: POST canonical valid AuditEvent twice with the same id, assert HTTP 201 both times, verify exactly one row in events table.",
+            "Use canonical AuditEvent fixture: id='7c10ec9b-daaf-4146-8e40-6efc92e5db39', timestamp='2026-06-18T11:26:26.527713+00:00', run_id='20260618_112626_17dd3f', event_type='run.start', node_id='', session_id='', archetype='', severity='info', payload={\"plan_hash\":\"abc123\"}."
+          ],
+          "test_spec_refs": [
+            "TS-02-20",
+            "TS-02-21",
+            "TS-02-22"
+          ],
+          "requirement_refs": [
+            "02-REQ-9.1",
+            "02-REQ-9.2",
+            "02-REQ-9.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.2",
+          "title": "Update existing TestTS01_1, TestTS01_2, TestTS01_5 to use canonical AuditEvent payload",
+          "details": [
+            "Modify `internal/integration/events_test.go`.",
+            "Replace arbitrary JSON payloads in TestTS01_1, TestTS01_2, and TestTS01_5 with the canonical valid AuditEvent JSON body.",
+            "Ensure each test uses a distinct `id` value to avoid primary key conflicts across test runs.",
+            "All other assertions in those tests remain unchanged."
+          ],
+          "test_spec_refs": [
+            "TS-02-23"
+          ],
+          "requirement_refs": [
+            "02-REQ-9.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.3",
+          "title": "Write unit tests for AuditEvent struct, InsertEvent signature, and events table schema",
+          "details": [
+            "Update `internal/db/db_test.go` to verify: PRAGMA table_info(events) returns exactly 10 columns with correct names, types, and constraints (id TEXT PRIMARY KEY, timestamp/run_id/event_type/node_id/session_id/archetype/severity/payload TEXT NOT NULL, received_at DATETIME NOT NULL).",
+            "Add test for InsertEvent signature: func InsertEvent(ctx context.Context, db *sql.DB, event AuditEvent) error in package db.",
+            "Add test that calls InsertEvent with a valid AuditEvent, checks no error returned, and verifies the row in DB including received_at parseable as time.RFC3339Nano.",
+            "Add test that unmarshals canonical JSON into AuditEvent and asserts all 9 fields have correct Go types and JSON tags, with Payload being json.RawMessage.",
+            "Add test verifying CREATE TABLE IF NOT EXISTS DDL creates the table on a fresh database (TS-02-13)."
+          ],
+          "test_spec_refs": [
+            "TS-02-1",
+            "TS-02-2",
+            "TS-02-9",
+            "TS-02-13",
+            "TS-02-16",
+            "TS-02-17"
+          ],
+          "requirement_refs": [
+            "02-REQ-1.1",
+            "02-REQ-1.2",
+            "02-REQ-4.1",
+            "02-REQ-7.1",
+            "02-REQ-7.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.4",
+          "title": "Write edge-case and property-style integration tests",
+          "details": [
+            "Add integration test cases covering: malformed JSON body (TS-02-E2), top-level JSON array (TS-02-E3), JSON null body (TS-02-E4), empty id string (TS-02-E5), empty severity string (TS-02-E6), array payload (TS-02-E7), null payload (TS-02-E8).",
+            "Add test for empty body returning HTTP 400 (TS-02-E9) — confirm existing behavior is preserved.",
+            "Add unit test for DDL failure path: init_db on a failing DB handle should call log.Fatal / os.Exit with non-zero code (TS-02-E10).",
+            "Add unit test for old 3-column schema: CREATE TABLE IF NOT EXISTS is a no-op and startup proceeds without error (TS-02-E11).",
+            "These tests may be added to `internal/integration/validation_test.go` or a separate `internal/db/db_test.go` as appropriate."
+          ],
+          "test_spec_refs": [
+            "TS-02-E2",
+            "TS-02-E3",
+            "TS-02-E4",
+            "TS-02-E5",
+            "TS-02-E6",
+            "TS-02-E7",
+            "TS-02-E8",
+            "TS-02-E9",
+            "TS-02-E10",
+            "TS-02-E11"
+          ],
+          "requirement_refs": [
+            "02-REQ-2.E1",
+            "02-REQ-2.E2",
+            "02-REQ-2.E3",
+            "02-REQ-2.E4",
+            "02-REQ-5.E1",
+            "02-REQ-5.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.5",
+          "title": "Update helpers_test.go to match the new 10-column events table schema",
+          "details": [
+            "Modify `internal/integration/helpers_test.go` to reflect the new 10-column schema.",
+            "Update any helper that reads from or queries the events table to include all 10 columns: id, timestamp, run_id, event_type, node_id, session_id, archetype, severity, payload, received_at.",
+            "Remove any references to the old three-column schema (id, payload, received_at only).",
+            "Ensure test helpers correctly handle scanning all 10 columns from query results."
+          ],
+          "test_spec_refs": [
+            "TS-02-9"
+          ],
+          "requirement_refs": [
+            "02-REQ-4.1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "1.V",
+        "checks": [
+          "All new and updated test files compile without errors: `go build ./...`",
+          "go vet reports no issues: `go vet ./...`",
+          "New test functions (TestTS02_1, TestTS02_2, TestTS02_3) exist and are discoverable: `go test ./internal/integration/... -list 'TestTS02.*'`",
+          "Tests that depend on unimplemented production code fail with compilation or stub errors rather than panicking unexpectedly — confirm tests are structurally correct",
+          "02-REQ-9.1, 02-REQ-9.2, 02-REQ-9.3, 02-REQ-9.4 acceptance criteria are represented by test cases"
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "kind": "standard",
+      "title": "Define AuditEvent struct and update InsertEvent in db package",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Add AuditEvent struct to internal/db/events.go",
+          "details": [
+            "In `internal/db/events.go`, define the AuditEvent struct with exactly 9 exported fields and JSON struct tags:",
+            "  ID        string          `json:\"id\"`",
+            "  Timestamp string          `json:\"timestamp\"`",
+            "  RunID     string          `json:\"run_id\"`",
+            "  EventType string          `json:\"event_type\"`",
+            "  NodeID    string          `json:\"node_id\"`",
+            "  SessionID string          `json:\"session_id\"`",
+            "  Archetype string          `json:\"archetype\"`",
+            "  Severity  string          `json:\"severity\"`",
+            "  Payload   json.RawMessage `json:\"payload\"`",
+            "Import `encoding/json` in the db package.",
+            "Do NOT use `json.Decoder` with `DisallowUnknownFields` anywhere — Go default json.Unmarshal behavior (ignoring unknown fields) is required."
+          ],
+          "test_spec_refs": [
+            "TS-02-1",
+            "TS-02-2",
+            "TS-02-3"
+          ],
+          "requirement_refs": [
+            "02-REQ-1.1",
+            "02-REQ-1.2",
+            "02-REQ-1.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.2",
+          "title": "Update InsertEvent function signature and implementation",
+          "details": [
+            "Update the signature of InsertEvent in `internal/db/events.go` to: `func InsertEvent(ctx context.Context, db *sql.DB, event AuditEvent) error`",
+            "Implementation must execute: `INSERT OR IGNORE INTO events (id, timestamp, run_id, event_type, node_id, session_id, archetype, severity, payload, received_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`",
+            "Use `db.ExecContext(ctx, query, ...)` — no explicit transaction wrapper.",
+            "Serialize the payload field via `json.Marshal(event.Payload)` before storing; convert result to string.",
+            "Generate `received_at` as `time.Now().UTC().Format(time.RFC3339Nano)`.",
+            "Return nil if INSERT OR IGNORE succeeds (including duplicate id case); return non-nil error only for genuine INSERT failures.",
+            "Remove any server-side UUID generation that was previously part of InsertEvent."
+          ],
+          "test_spec_refs": [
+            "TS-02-16",
+            "TS-02-17",
+            "TS-02-15"
+          ],
+          "requirement_refs": [
+            "02-REQ-7.1",
+            "02-REQ-7.2",
+            "02-REQ-6.1",
+            "02-REQ-4.3",
+            "02-REQ-4.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.3",
+          "title": "Update all existing call sites of InsertEvent to pass AuditEvent struct",
+          "details": [
+            "Search the codebase for all existing calls to InsertEvent and update them to pass a db.AuditEvent struct instead of flat positional arguments.",
+            "Confirm that `internal/handler/events.go` references h.DB (the existing *sql.DB field on EventsHandler) when calling InsertEvent — no new injection mechanism.",
+            "Ensure the `internal/handler` package imports `internal/db` and uses `db.AuditEvent` directly without any separate DTO."
+          ],
+          "test_spec_refs": [
+            "TS-02-18"
+          ],
+          "requirement_refs": [
+            "02-REQ-7.1",
+            "02-REQ-7.3"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "2.V",
+        "checks": [
+          "Unit tests for AuditEvent struct and InsertEvent pass: `go test ./internal/db/... -count=1 -v`",
+          "go vet reports no issues: `go vet ./internal/db/...`",
+          "AuditEvent struct has exactly 9 fields with correct types and JSON tags — verified by TS-02-1 and TS-02-2 passing",
+          "InsertEvent uses INSERT OR IGNORE with all 9 event fields plus received_at — verified by TS-02-17 passing",
+          "02-REQ-1.1, 02-REQ-1.2, 02-REQ-7.1, 02-REQ-7.2, 02-REQ-6.1 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "kind": "standard",
+      "title": "Update events table DDL in db.go",
+      "subtasks": [
+        {
+          "id": "3.1",
+          "title": "Replace schema DDL in internal/db/db.go with new 10-column CREATE TABLE IF NOT EXISTS",
+          "details": [
+            "In `internal/db/db.go`, replace the existing schema DDL with the authoritative 10-column DDL exactly as specified:",
+            "  CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, timestamp TEXT NOT NULL, run_id TEXT NOT NULL, event_type TEXT NOT NULL, node_id TEXT NOT NULL, session_id TEXT NOT NULL, archetype TEXT NOT NULL, severity TEXT NOT NULL, payload TEXT NOT NULL, received_at DATETIME NOT NULL);",
+            "Do NOT include any DROP TABLE statement anywhere in db.go.",
+            "Do NOT add WITHOUT ROWID, STRICT, collation, or index options.",
+            "Use `id` from the event as the primary key — remove any server-side UUID generation for the primary key."
+          ],
+          "test_spec_refs": [
+            "TS-02-9",
+            "TS-02-13",
+            "TS-02-14"
+          ],
+          "requirement_refs": [
+            "02-REQ-4.1",
+            "02-REQ-5.1",
+            "02-REQ-5.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.2",
+          "title": "Add fatal-exit behaviour if CREATE TABLE IF NOT EXISTS DDL fails",
+          "details": [
+            "After executing the CREATE TABLE IF NOT EXISTS statement, check the returned error.",
+            "If the error is non-nil, call log.Fatal (or equivalent) with a descriptive message referencing the DDL failure; this causes the process to exit with a non-zero exit code.",
+            "The service must never continue running without a valid events table.",
+            "This matches the existing startup failure behavior of the codebase."
+          ],
+          "test_spec_refs": [
+            "TS-02-E10",
+            "TS-02-SMOKE-5"
+          ],
+          "requirement_refs": [
+            "02-REQ-5.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.3",
+          "title": "Verify CREATE TABLE IF NOT EXISTS is a no-op on pre-existing table",
+          "details": [
+            "Confirm by code inspection and unit test that IF NOT EXISTS semantics mean startup proceeds normally when the events table already exists (even with old 3-column schema).",
+            "No migration logic or DROP TABLE is attempted — the DDL statement simply produces no error.",
+            "Unit test (TS-02-E11): open a SQLite DB with old 3-column schema, call init_db, assert no fatal exit and no error returned."
+          ],
+          "test_spec_refs": [
+            "TS-02-E11"
+          ],
+          "requirement_refs": [
+            "02-REQ-5.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "3.V",
+        "checks": [
+          "Unit tests for DB initialization pass: `go test ./internal/db/... -count=1 -v -run 'TestTS02'`",
+          "PRAGMA table_info(events) returns exactly 10 columns — verified by TS-02-9 and TS-02-13 passing",
+          "No DROP TABLE found anywhere in internal/db/db.go — verified by TS-02-14 passing",
+          "DDL failure causes log.Fatal / non-zero exit — verified by TS-02-E10 passing",
+          "go vet reports no issues: `go vet ./internal/db/...`",
+          "02-REQ-4.1, 02-REQ-5.1, 02-REQ-5.2, 02-REQ-5.E1 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "kind": "standard",
+      "title": "Implement validation logic in the POST /v1/events handler",
+      "subtasks": [
+        {
+          "id": "4.1",
+          "title": "Replace raw JSON passthrough with single-pass json.Unmarshal into AuditEvent",
+          "details": [
+            "In `internal/handler/events.go`, replace the existing raw JSON passthrough with `json.Unmarshal(body, &event)` where event is of type `db.AuditEvent`.",
+            "Read the request body bytes first (e.g. via io.ReadAll or c.Request().Body).",
+            "If json.Unmarshal returns any error (malformed JSON, top-level array, scalar, null), immediately call `c.NoContent(http.StatusCreated)` and return nil — do NOT store the event and do NOT log an error.",
+            "Do NOT use json.Decoder with DisallowUnknownFields — unknown fields are silently ignored per Go default behavior.",
+            "Do NOT perform a two-pass unmarshal."
+          ],
+          "test_spec_refs": [
+            "TS-02-4",
+            "TS-02-7",
+            "TS-02-E2",
+            "TS-02-E3",
+            "TS-02-E4"
+          ],
+          "requirement_refs": [
+            "02-REQ-2.1",
+            "02-REQ-2.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.2",
+          "title": "Add non-empty string validation for required fields",
+          "details": [
+            "After successful json.Unmarshal, check that the following fields are non-empty strings: event.ID, event.Timestamp, event.RunID, event.EventType, event.Severity.",
+            "If any of these fields is an empty string, call `c.NoContent(http.StatusCreated)` and return nil — do NOT store and do NOT log an error.",
+            "Do NOT reject the event if event.NodeID, event.SessionID, or event.Archetype are empty strings — these are valid."
+          ],
+          "test_spec_refs": [
+            "TS-02-5",
+            "TS-02-E5",
+            "TS-02-E6"
+          ],
+          "requirement_refs": [
+            "02-REQ-2.2",
+            "02-REQ-2.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.3",
+          "title": "Add payload first-byte check for object type",
+          "details": [
+            "After non-empty string checks pass, inspect event.Payload (json.RawMessage).",
+            "Trim leading whitespace from the raw bytes using `bytes.TrimLeft(event.Payload, \" \\t\\r\\n\")` or equivalent.",
+            "If the trimmed slice is empty or the first byte is not `{`, call `c.NoContent(http.StatusCreated)` and return nil — do NOT store and do NOT log an error.",
+            "This check covers: array payload (first byte '['), null payload (first byte 'n'), string payload (first byte '\"'), numeric payload (digit), and empty payload field."
+          ],
+          "test_spec_refs": [
+            "TS-02-6",
+            "TS-02-E7",
+            "TS-02-E8"
+          ],
+          "requirement_refs": [
+            "02-REQ-2.3",
+            "02-REQ-2.E3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.4",
+          "title": "Call InsertEvent on successfully validated event and return 201",
+          "details": [
+            "After all validation passes, call `db.InsertEvent(c.Request().Context(), h.DB, event)`.",
+            "Access the database handle via h.DB — the existing EventsHandler struct field; no new injection mechanism.",
+            "If InsertEvent returns a non-nil error (not a duplicate key — those return nil), propagate the error appropriately (return an HTTP 500 or use Echo's error handling).",
+            "For all successful paths (including duplicate id ignored by INSERT OR IGNORE), return `c.NoContent(http.StatusCreated)`.",
+            "The response for ALL non-empty request bodies (valid or invalid) is HTTP 201 with zero-byte body and no Content-Type header."
+          ],
+          "test_spec_refs": [
+            "TS-02-8",
+            "TS-02-15",
+            "TS-02-SMOKE-1"
+          ],
+          "requirement_refs": [
+            "02-REQ-3.1",
+            "02-REQ-7.3",
+            "02-REQ-6.1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "4.V",
+        "checks": [
+          "Integration tests for handler validation pass: `go test ./internal/integration/... -count=1 -v -run 'TestTS02'`",
+          "go vet reports no issues: `go vet ./internal/handler/...`",
+          "TS-02-4 (valid event stored), TS-02-6 (array payload rejected), TS-02-E2 (malformed JSON rejected), TS-02-E5 (empty id rejected), TS-02-E9 (empty body → 400) all pass",
+          "TS-02-7 (extra fields accepted) and TS-02-E1 pass — unknown fields are silently ignored",
+          "02-REQ-2.1, 02-REQ-2.2, 02-REQ-2.3, 02-REQ-2.4, 02-REQ-3.1 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "kind": "checkpoint",
+      "title": "Integration checkpoint — all spec tests pass end-to-end",
+      "subtasks": [
+        {
+          "id": "5.1",
+          "title": "Run full integration test suite including updated TestTS01 tests",
+          "details": [
+            "Run the full integration test suite: `go test ./internal/integration/... -count=1 -v`",
+            "Confirm TestTS02_1, TestTS02_2, TestTS02_3 all pass.",
+            "Confirm TestTS01_1, TestTS01_2, TestTS01_5 pass with the updated canonical AuditEvent payloads.",
+            "Confirm existing auth/health-check tests (401, 400 for empty body, GET /healthz, GET /readyz) still pass — no regressions in 02-REQ-8.1."
+          ],
+          "test_spec_refs": [
+            "TS-02-20",
+            "TS-02-21",
+            "TS-02-22",
+            "TS-02-23",
+            "TS-02-19"
+          ],
+          "requirement_refs": [
+            "02-REQ-8.1",
+            "02-REQ-9.1",
+            "02-REQ-9.2",
+            "02-REQ-9.3",
+            "02-REQ-9.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.2",
+          "title": "Run full unit test suite and linter",
+          "details": [
+            "Run: `go test ./... -count=1` — all tests (unit + integration) must pass.",
+            "Run: `go vet ./...` — no issues reported.",
+            "Confirm that PRAGMA table_info(events) returns 10 columns in the db unit tests.",
+            "Confirm InsertEvent signature unit test passes."
+          ],
+          "test_spec_refs": [
+            "TS-02-1",
+            "TS-02-9",
+            "TS-02-16"
+          ],
+          "requirement_refs": [
+            "02-REQ-1.1",
+            "02-REQ-4.1",
+            "02-REQ-7.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.3",
+          "title": "Verify silent rejection indistinguishability property",
+          "details": [
+            "Confirm via TS-02-8 and TS-02-P1 scenarios that both valid and invalid (non-empty) POST /v1/events requests return HTTP 201 with zero-byte body and no Content-Type header.",
+            "Manually verify with curl or test that no Content-Type header leaks into 201 responses.",
+            "Confirm 02-PROP-1 (silent rejection indistinguishability) holds across the covered test cases."
+          ],
+          "test_spec_refs": [
+            "TS-02-8",
+            "TS-02-P1"
+          ],
+          "requirement_refs": [
+            "02-REQ-3.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.4",
+          "title": "Verify no storage of invalid events property",
+          "details": [
+            "Confirm that after all invalid-payload tests run, the events table contains zero rows for those submissions.",
+            "Verify 02-PROP-2 (no storage of invalid events) holds: malformed JSON, missing field, empty required string, non-object payload — none result in a DB row.",
+            "Check DB row count assertions in TestTS02_2, TS-02-E2 through TS-02-E8."
+          ],
+          "test_spec_refs": [
+            "TS-02-P2",
+            "TS-02-E2",
+            "TS-02-E5",
+            "TS-02-E7"
+          ],
+          "requirement_refs": [
+            "02-REQ-2.E1",
+            "02-REQ-2.E2",
+            "02-REQ-2.E3"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "5.V",
+        "checks": [
+          "All spec tests pass: `go test ./internal/integration/... -count=1 -v -run 'TestTS02'`",
+          "All existing spec 01 integration tests still pass: `go test ./internal/integration/... -count=1 -v -run 'TestTS01'`",
+          "Full test suite passes with no failures: `go test ./... -count=1`",
+          "go vet reports no issues: `go vet ./...`",
+          "02-REQ-9.1, 02-REQ-9.2, 02-REQ-9.3, 02-REQ-9.4, 02-REQ-8.1 acceptance criteria all met"
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "kind": "wiring_verification",
+      "title": "Wiring verification — end-to-end integration and stub audit",
+      "subtasks": [
+        {
+          "id": "6.1",
+          "title": "Trace execution paths — verify function call chains have no stubs",
+          "details": [
+            "02-PATH-1 (valid event): Confirm handler reads body → json.Unmarshal into db.AuditEvent → non-empty checks → payload byte check → db.InsertEvent(ctx, h.DB, event) → c.NoContent(201). No stub or panic(\"not implemented\") in any step.",
+            "02-PATH-2 (invalid event): Confirm each validation failure path calls c.NoContent(201) immediately and does NOT call InsertEvent. No unreachable code.",
+            "02-PATH-3 (duplicate): Confirm INSERT OR IGNORE in InsertEvent returns nil on conflict; handler calls c.NoContent(201).",
+            "02-PATH-4 (startup DDL success): Confirm service startup executes CREATE TABLE IF NOT EXISTS and proceeds to serve requests.",
+            "02-PATH-5 (startup DDL failure): Confirm log.Fatal is called and process exits — no HTTP server started.",
+            "Search codebase for stub markers: `grep -rn 'panic(\"not implemented\")\\|// TODO\\|panic(\"TODO\")' internal/` — must return no results in production code paths."
+          ],
+          "test_spec_refs": [
+            "TS-02-SMOKE-1",
+            "TS-02-SMOKE-2",
+            "TS-02-SMOKE-3",
+            "TS-02-SMOKE-4",
+            "TS-02-SMOKE-5"
+          ],
+          "requirement_refs": [
+            "02-REQ-2.1",
+            "02-REQ-7.2",
+            "02-REQ-5.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.2",
+          "title": "Verify return value propagation is correct throughout the call chain",
+          "details": [
+            "Confirm that the error return from InsertEvent is received and handled by the handler — not silently discarded.",
+            "Confirm nil error from InsertEvent (including INSERT OR IGNORE no-op) results in c.NoContent(201).",
+            "Confirm non-nil error from InsertEvent (genuine DB failure) is propagated appropriately (e.g. returned to Echo's error handler).",
+            "Confirm json.Unmarshal error return is checked before proceeding to validation steps.",
+            "Confirm bytes.TrimLeft result is used for the first-byte check and the result of that check is respected."
+          ],
+          "test_spec_refs": [
+            "TS-02-15",
+            "TS-02-17"
+          ],
+          "requirement_refs": [
+            "02-REQ-7.2",
+            "02-REQ-6.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.3",
+          "title": "Run all smoke tests with real components",
+          "details": [
+            "TS-02-SMOKE-1: POST canonical valid AuditEvent → HTTP 201, zero-byte body, no Content-Type, one row in events with all 9 event columns and valid received_at.",
+            "TS-02-SMOKE-2: POST invalid event (missing event_type) → HTTP 201, zero-byte body, no Content-Type, zero rows in events.",
+            "TS-02-SMOKE-3: POST canonical valid AuditEvent twice (same id) → HTTP 201 both times, exactly one row in events.",
+            "TS-02-SMOKE-4: Start service with fresh SQLite DB → CREATE TABLE IF NOT EXISTS succeeds, events table has 10 columns, GET /healthz returns 200.",
+            "TS-02-SMOKE-5: Start service with failing DB handle → log.Fatal called, process exits non-zero, no HTTP server started.",
+            "All smoke tests must pass using real Echo server, real SQLite DB, and real InsertEvent — no mocks in smoke tests."
+          ],
+          "test_spec_refs": [
+            "TS-02-SMOKE-1",
+            "TS-02-SMOKE-2",
+            "TS-02-SMOKE-3",
+            "TS-02-SMOKE-4",
+            "TS-02-SMOKE-5"
+          ],
+          "requirement_refs": [
+            "02-REQ-3.1",
+            "02-REQ-9.1",
+            "02-REQ-9.2",
+            "02-REQ-9.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.4",
+          "title": "Stub and dead-code audit across all modified files",
+          "details": [
+            "Run: `grep -rn 'panic(\"not implemented\")\\|panic(\"TODO\")\\|// TODO\\|// FIXME' internal/db/events.go internal/db/db.go internal/handler/events.go` — must return no results.",
+            "Confirm no bare `return nil` in InsertEvent that would skip the actual DB exec.",
+            "Confirm no bare `return nil` in the handler that would skip the full validation chain.",
+            "Confirm AuditEvent struct has all 9 fields with non-zero-value JSON tags — no placeholder or dummy field names.",
+            "Confirm the DDL string in db.go matches the authoritative 10-column schema exactly — no missing columns."
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [
+            "02-REQ-2.1",
+            "02-REQ-7.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.5",
+          "title": "Cross-spec entry point verification — spec 01 tests call updated handler",
+          "details": [
+            "Confirm that TestTS01_1, TestTS01_2, TestTS01_5 in `internal/integration/events_test.go` now send the canonical valid AuditEvent JSON (all 9 fields, correct types) and not the old arbitrary JSON.",
+            "Confirm those tests call the same POST /v1/events endpoint and exercise the updated handler (with validation logic active).",
+            "Confirm no regression in authentication tests, Content-Type validation tests, health check tests (GET /healthz, GET /readyz).",
+            "Run: `go test ./internal/integration/... -count=1 -v` — all tests including TestTS01_* and TestTS02_* must pass."
+          ],
+          "test_spec_refs": [
+            "TS-02-23",
+            "TS-02-19"
+          ],
+          "requirement_refs": [
+            "02-REQ-8.1",
+            "02-REQ-9.4"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "6.V",
+        "checks": [
+          "All smoke tests pass end-to-end with real components: `go test ./internal/integration/... -count=1 -v -run 'TestTS02'`",
+          "No stub markers found: `grep -rn 'panic(\\\"not implemented\\\")\\|// TODO' internal/db/events.go internal/db/db.go internal/handler/events.go` returns empty",
+          "Full test suite passes: `go test ./... -count=1` — zero failures",
+          "go vet reports no issues: `go vet ./...`",
+          "All 5 execution paths (02-PATH-1 through 02-PATH-5) verified as fully wired with no stubs",
+          "TestTS01_1, TestTS01_2, TestTS01_5 pass with canonical AuditEvent payloads: `go test ./internal/integration/... -count=1 -v -run 'TestTS01'`",
+          "02-PROP-1, 02-PROP-2, 02-PROP-3, 02-PROP-4, 02-PROP-5, 02-PROP-6 correctness properties all verified by passing tests"
+        ]
+      }
+    }
+  ],
+  "traceability": [
+    {
+      "requirement_id": "02-REQ-1.1",
+      "test_spec_id": "TS-02-1",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-1.2",
+      "test_spec_id": "TS-02-2",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-1.3",
+      "test_spec_id": "TS-02-3",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-2.1",
+      "test_spec_id": "TS-02-4",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-2.2",
+      "test_spec_id": "TS-02-5",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-2.3",
+      "test_spec_id": "TS-02-6",
+      "task_id": "4.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-2.4",
+      "test_spec_id": "TS-02-7",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-3.1",
+      "test_spec_id": "TS-02-8",
+      "task_id": "4.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-4.1",
+      "test_spec_id": "TS-02-9",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-4.2",
+      "test_spec_id": "TS-02-10",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-4.3",
+      "test_spec_id": "TS-02-11",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-4.4",
+      "test_spec_id": "TS-02-12",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-5.1",
+      "test_spec_id": "TS-02-13",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-5.2",
+      "test_spec_id": "TS-02-14",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-6.1",
+      "test_spec_id": "TS-02-15",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-7.1",
+      "test_spec_id": "TS-02-16",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-7.2",
+      "test_spec_id": "TS-02-17",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-7.3",
+      "test_spec_id": "TS-02-18",
+      "task_id": "2.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-8.1",
+      "test_spec_id": "TS-02-19",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-9.1",
+      "test_spec_id": "TS-02-20",
+      "task_id": "1.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-9.2",
+      "test_spec_id": "TS-02-21",
+      "task_id": "1.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-9.3",
+      "test_spec_id": "TS-02-22",
+      "task_id": "1.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-9.4",
+      "test_spec_id": "TS-02-23",
+      "task_id": "1.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-2.E1",
+      "test_spec_id": "TS-02-E2",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-2.E2",
+      "test_spec_id": "TS-02-E5",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-2.E3",
+      "test_spec_id": "TS-02-E7",
+      "task_id": "4.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-2.E4",
+      "test_spec_id": "TS-02-E9",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-5.E1",
+      "test_spec_id": "TS-02-E10",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-5.E2",
+      "test_spec_id": "TS-02-E11",
+      "task_id": "3.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-1.E1",
+      "test_spec_id": "TS-02-E1",
+      "task_id": "4.1",
+      "test_path": null
+    }
+  ]
+}
